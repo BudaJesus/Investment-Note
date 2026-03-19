@@ -116,16 +116,23 @@ async function fetchFredReleaseDates() {
   if (!apiKey) return {};
   const results = {};
   const today = new Date().toISOString().slice(0, 10);
+  // 3개월 후까지 조회
+  const future = new Date();
+  future.setMonth(future.getMonth() + 3);
+  const futureStr = future.toISOString().slice(0, 10);
   const fetched = {};
   for (const [indId, relId] of Object.entries(FRED_RELEASES)) {
     if (fetched[relId]) { results[indId] = fetched[relId]; continue; }
     try {
-      const res = await fetch(`https://api.stlouisfed.org/fred/release/dates?release_id=${relId}&api_key=${apiKey}&file_type=json&include_release_dates_with_no_data=true&sort_order=asc&limit=5`);
+      const url = `https://api.stlouisfed.org/fred/release/dates?release_id=${relId}&api_key=${apiKey}&file_type=json&realtime_start=${today}&realtime_end=${futureStr}&include_release_dates_with_no_data=true&sort_order=asc&limit=3`;
+      const res = await fetch(url);
       if (!res.ok) continue;
       const data = await res.json();
       const dates = data?.release_dates || [];
-      const next = dates.find(d => d.date >= today);
-      if (next) { fetched[relId] = { date: next.date, source: "fred" }; results[indId] = fetched[relId]; }
+      if (dates.length > 0) {
+        fetched[relId] = { date: dates[0].date, source: "fred" };
+        results[indId] = fetched[relId];
+      }
     } catch (e) {}
   }
   return results;

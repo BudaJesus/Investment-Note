@@ -236,25 +236,23 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
   useEffect(() => {
     if (!loaded) return;
     let changed = false;
-    setIndicators((prev) => {
-      const next = { ...prev };
-      // ISM PMI: 0~100 범위 → 100 초과 값 제거
-      if (next.us_ism) {
-        const filtered = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
-        if (filtered.length !== (next.us_ism || []).length) { next.us_ism = filtered.length > 0 ? filtered : undefined; changed = true; }
-      }
-      // 한국 기준금리: 2025년 이후 2.75% 초과 → 잘못된 데이터 제거
-      if (next.kr_rate) {
-        const filtered = (next.kr_rate || []).filter(r => !(r.date >= "2025" && parseFloat(r.value) > 2.75));
-        if (filtered.length !== (next.kr_rate || []).length) { next.kr_rate = filtered.length > 0 ? filtered : undefined; changed = true; }
-      }
-      // 원유재고: 주간 변동은 ±수천. 수십만 이상 → 옛날 총재고량 제거
-      if (next.oil_inv) {
-        const filtered = (next.oil_inv || []).filter(r => Math.abs(parseFloat(r.value)) < 50000);
-        if (filtered.length !== (next.oil_inv || []).length) { next.oil_inv = filtered.length > 0 ? filtered : undefined; changed = true; }
-      }
-      return changed ? next : prev;
-    });
+    const next = { ...indicators };
+    if (next.us_ism) {
+      const filtered = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
+      if (filtered.length !== (next.us_ism || []).length) { next.us_ism = filtered.length > 0 ? filtered : undefined; changed = true; }
+    }
+    if (next.kr_rate) {
+      const filtered = (next.kr_rate || []).filter(r => !(r.date >= "2025" && parseFloat(r.value) > 2.75));
+      if (filtered.length !== (next.kr_rate || []).length) { next.kr_rate = filtered.length > 0 ? filtered : undefined; changed = true; }
+    }
+    if (next.oil_inv) {
+      const filtered = (next.oil_inv || []).filter(r => Math.abs(parseFloat(r.value)) < 50000);
+      if (filtered.length !== (next.oil_inv || []).length) { next.oil_inv = filtered.length > 0 ? filtered : undefined; changed = true; }
+    }
+    if (changed) {
+      setIndicators(next);
+      try { window.storage.set("eco-indicators", JSON.stringify(next)); } catch(e){}
+    }
   }, [loaded]);
 
   const getStorageSize = useCallback(() => {
@@ -265,10 +263,11 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
       reports: JSON.stringify(reports).length,
       links: JSON.stringify(routineLinks).length,
       sectors: JSON.stringify(customSectors).length,
+      autoData: autoData ? JSON.stringify(autoData).length : 0,
     };
     sizes.total = Object.values(sizes).reduce((a, b) => a + b, 0);
     return sizes;
-  }, [entries, scraps, indicators, reports, routineLinks, customSectors]);
+  }, [entries, scraps, indicators, reports, routineLinks, customSectors, autoData]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -379,7 +378,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
         </div>
       )}
 
-      {showDataMgr && <DataManager entries={entries} setEntries={setEntries} scraps={scraps} setScraps={setScraps} indicators={indicators} setIndicators={setIndicators} reports={reports} setReports={setReports} getStorageSize={getStorageSize} showToast={showToast} setAutoData={setAutoData} saveAll={saveAll} onClose={() => setShowDataMgr(false)} />}
+      {showDataMgr && <DataManager entries={entries} setEntries={setEntries} scraps={scraps} setScraps={setScraps} indicators={indicators} setIndicators={setIndicators} reports={reports} setReports={setReports} getStorageSize={getStorageSize} showToast={showToast} setAutoData={setAutoData} autoData={autoData} onClose={() => setShowDataMgr(false)} />}
 
       {/* Page Toggle */}
       <div style={S.pageToggleBar}>
@@ -405,7 +404,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
         </button>
       </div>
 
-      {page === "dashboard" && <DashboardPage setPage={setPage} entries={entries} scraps={scraps} reports={reports} indicators={indicators} routineLinks={routineLinks} setRoutineLinks={setRoutineLinks} saveAll={saveAll} autoData={autoData} />}
+      {page === "dashboard" && <DashboardPage setPage={setPage} entries={entries} scraps={scraps} reports={reports} indicators={indicators} routineLinks={routineLinks} setRoutineLinks={setRoutineLinks} saveAll={saveAll} autoData={autoData} setAutoData={setAutoData} />}
 
       {page === "top10" && <Top10Page autoData={autoData} showToast={showToast} />}
 
@@ -1334,13 +1333,14 @@ const DEFAULT_LINKS = [
   { id: "bell", label: "더벨", url: "https://www.thebell.co.kr/front/index.asp" },
 ];
 
-function DashboardPage({ setPage, entries, scraps, reports, indicators, routineLinks, setRoutineLinks, saveAll, autoData }) {
+function DashboardPage({ setPage, entries, scraps, reports, indicators, routineLinks, setRoutineLinks, saveAll, autoData, setAutoData }) {
   const [showLinkEditor, setShowLinkEditor] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [newUrl, setNewUrl] = useState("");
   const [showCalDetail, setShowCalDetail] = useState(null);
   const [showNotes, setShowNotes] = useState(false);
   const [showRoutine, setShowRoutine] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [manualBonds, setManualBonds] = useState(() => {
     try { const s = localStorage.getItem("manualBonds"); return s ? JSON.parse(s) : {}; } catch { return {}; }
   });
@@ -1353,6 +1353,17 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
     localStorage.setItem("manualBonds", JSON.stringify(updated));
     setEditingBondId(null);
     setBondInput("");
+  };
+
+  const refreshMarketData = async () => {
+    setRefreshing(true);
+    try {
+      if (window.getLatestAutoData) {
+        const ad = await window.getLatestAutoData();
+        if (ad) setAutoData(ad);
+      }
+    } catch (e) {}
+    setRefreshing(false);
   };
 
   const links = routineLinks.length > 0 ? routineLinks : DEFAULT_LINKS;
@@ -1559,7 +1570,12 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <p style={{ ...H.section, margin: 0 }}>시장 현황</p>
-              {hasData && <span style={{ fontSize: 8, color: C.textDim }}>{autoData.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 기준" : autoData.date_key + " 기준"}</span>}
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {hasData && <span style={{ fontSize: 8, color: C.textDim }}>{autoData.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 기준" : autoData.date_key + " 기준"}</span>}
+                <button style={{ background: C.accent + "10", border: `1px solid ${C.accent}30`, borderRadius: 4, padding: "4px 12px", fontSize: 10, color: C.accent, cursor: "pointer", fontFamily: C.sans, fontWeight: 700, opacity: refreshing ? 0.5 : 1 }} onClick={refreshMarketData} disabled={refreshing}>
+                  {refreshing ? "불러오는 중..." : "↻ 새로고침"}
+                </button>
+              </div>
             </div>
             {hasData ? (
               <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1574,8 +1590,11 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
               </div>
             ) : (
               <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: "20px 16px", textAlign: "center" }}>
-                <p style={{ fontSize: 12, color: C.textDim, margin: "0 0 4px" }}>아직 수집된 시장 데이터가 없습니다</p>
-                <p style={{ fontSize: 11, color: C.accent, margin: 0, fontWeight: 600 }}>다음 수집: {nextTime} (KST)</p>
+                <p style={{ fontSize: 12, color: C.textDim, margin: "0 0 8px" }}>아직 수집된 시장 데이터가 없습니다</p>
+                <button style={{ background: C.accent + "10", border: `1px solid ${C.accent}30`, borderRadius: 4, padding: "6px 16px", fontSize: 11, color: C.accent, cursor: "pointer", fontFamily: C.sans, fontWeight: 700, opacity: refreshing ? 0.5 : 1 }} onClick={refreshMarketData} disabled={refreshing}>
+                  {refreshing ? "불러오는 중..." : "↻ 수집 데이터 불러오기"}
+                </button>
+                <p style={{ fontSize: 10, color: C.textDim, margin: "6px 0 0" }}>수치갱신 후 이 버튼을 눌러주세요</p>
               </div>
             )}
             <p style={{ fontSize: 7, color: C.textDim, margin: "4px 0 0", textAlign: "center", lineHeight: 1.4 }}>
@@ -2034,83 +2053,81 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     let count = 0;
     const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "us2y_yield"]);
     const autoIds = new Set(AUTO_IDS);
-    setIndicators((prev) => {
-      const next = { ...prev };
-      // 이전 코드에서 잘못 수집된 데이터 정리
-      // ISM PMI: 0~100 범위 → 100 초과 값 제거
-      if (next.us_ism) {
-        next.us_ism = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
-        if (next.us_ism.length === 0) delete next.us_ism;
-      }
-      // 한국 기준금리: 현재 2.5%인데 3.0% 이상 값이 있으면 옛날 잘못된 데이터 → 제거
-      if (next.kr_rate) {
-        next.kr_rate = (next.kr_rate || []).filter(r => {
-          const v = parseFloat(r.value);
-          const d = r.date || "";
-          // 2025년 이후 데이터인데 2.75% 초과면 잘못된 값
-          return !(d >= "2025" && v > 2.75);
-        });
-        if (next.kr_rate.length === 0) delete next.kr_rate;
-      }
-      // 원유재고: 주간 변동은 ±수천 범위. 수십만 이상이면 옛날 잘못된 총재고량 → 제거
-      if (next.oil_inv) {
-        next.oil_inv = (next.oil_inv || []).filter(r => Math.abs(parseFloat(r.value)) < 50000);
-        if (next.oil_inv.length === 0) delete next.oil_inv;
-      }
-      for (const [id, data] of Object.entries(fredData)) {
-        if (skipKeys.has(id) || id.startsWith("_")) continue;
-        const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
-        const newRecords = arr.filter(item => item?.value).map(item => ({ date: item.date, value: item.value }));
-        if (newRecords.length > 0 && autoIds.has(id)) {
-          // 자동 수집 지표: 완전 교체 (옛날 잘못된 데이터 제거)
-          next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
-          count += newRecords.length;
-        } else if (newRecords.length > 0) {
-          // 수동 지표: 기존 방식 (추가만)
-          const records = [...(next[id] || [])];
-          for (const item of newRecords) {
-            const ei = records.findIndex(r => r.date === item.date);
-            if (ei >= 0) records[ei] = item;
-            else records.push(item);
-          }
-          next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
-          count += newRecords.length;
+
+    // 새 indicators를 직접 계산
+    const next = { ...indicators };
+
+    // 이전 코드에서 잘못 수집된 데이터 정리
+    if (next.us_ism) {
+      next.us_ism = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
+      if (next.us_ism.length === 0) delete next.us_ism;
+    }
+    if (next.kr_rate) {
+      next.kr_rate = (next.kr_rate || []).filter(r => !(r.date >= "2025" && parseFloat(r.value) > 2.75));
+      if (next.kr_rate.length === 0) delete next.kr_rate;
+    }
+    if (next.oil_inv) {
+      next.oil_inv = (next.oil_inv || []).filter(r => Math.abs(parseFloat(r.value)) < 50000);
+      if (next.oil_inv.length === 0) delete next.oil_inv;
+    }
+
+    // FRED 데이터
+    for (const [id, data] of Object.entries(fredData)) {
+      if (skipKeys.has(id) || id.startsWith("_")) continue;
+      const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
+      const newRecords = arr.filter(item => item?.value).map(item => ({ date: item.date, value: item.value }));
+      if (newRecords.length > 0 && autoIds.has(id)) {
+        next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
+        count += newRecords.length;
+      } else if (newRecords.length > 0) {
+        const records = [...(next[id] || [])];
+        for (const item of newRecords) {
+          const ei = records.findIndex(r => r.date === item.date);
+          if (ei >= 0) records[ei] = item;
+          else records.push(item);
         }
+        next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
+        count += newRecords.length;
       }
-      // ECOS 데이터: 동일 로직
-      for (const [id, data] of Object.entries(ecosData)) {
-        if (id.startsWith("_")) continue;
-        const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
-        const newRecords = [];
-        for (const item of arr) {
-          if (!item?.value) continue;
-          let dateKey;
-          if (item.date && item.date.includes("Q")) {
-            const [yr, qt] = item.date.split("Q");
-            dateKey = `${yr}-${String(parseInt(qt) * 3).padStart(2, "0")}-01`;
-          } else if (item.date && item.date.length === 6) {
-            dateKey = `${item.date.slice(0,4)}-${item.date.slice(4,6)}-01`;
-          } else {
-            dateKey = item.date || toKey(new Date());
-          }
-          newRecords.push({ date: dateKey, value: item.value });
+    }
+
+    // ECOS 데이터
+    for (const [id, data] of Object.entries(ecosData)) {
+      if (id.startsWith("_")) continue;
+      const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
+      const newRecords = [];
+      for (const item of arr) {
+        if (!item?.value) continue;
+        let dateKey;
+        if (item.date && item.date.includes("Q")) {
+          const [yr, qt] = item.date.split("Q");
+          dateKey = `${yr}-${String(parseInt(qt) * 3).padStart(2, "0")}-01`;
+        } else if (item.date && item.date.length === 6) {
+          dateKey = `${item.date.slice(0,4)}-${item.date.slice(4,6)}-01`;
+        } else {
+          dateKey = item.date || toKey(new Date());
         }
-        if (newRecords.length > 0 && autoIds.has(id)) {
-          next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
-          count += newRecords.length;
-        } else if (newRecords.length > 0) {
-          const records = [...(next[id] || [])];
-          for (const item of newRecords) {
-            const ei = records.findIndex(r => r.date === item.date);
-            if (ei >= 0) records[ei] = item;
-            else records.push(item);
-          }
-          next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
-          count += newRecords.length;
-        }
+        newRecords.push({ date: dateKey, value: item.value });
       }
-      return next;
-    });
+      if (newRecords.length > 0 && autoIds.has(id)) {
+        next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
+        count += newRecords.length;
+      } else if (newRecords.length > 0) {
+        const records = [...(next[id] || [])];
+        for (const item of newRecords) {
+          const ei = records.findIndex(r => r.date === item.date);
+          if (ei >= 0) records[ei] = item;
+          else records.push(item);
+        }
+        next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
+        count += newRecords.length;
+      }
+    }
+
+    // React 상태 + Supabase 즉시 저장
+    setIndicators(next);
+    try { window.storage.set("eco-indicators", JSON.stringify(next)); } catch(e){}
+
     setTimeout(() => {
       setSyncLoading(false);
       showToast(count > 0 ? `${count}개 지표 업데이트됨` : "새로운 데이터가 없습니다 (이미 최신)");
@@ -2125,41 +2142,42 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
   }, [autoData, autoSynced]);
 
   const togglePin = (id) => {
-    setPins((prev) => {
-      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
-      setIndicators((ind) => ({ ...ind, _pins: next }));
-      return next;
-    });
+    const nextPins = pins.includes(id) ? pins.filter((p) => p !== id) : [...pins, id];
+    setPins(nextPins);
+    const nextInd = { ...indicators, _pins: nextPins };
+    setIndicators(nextInd);
+    try { window.storage.set("eco-indicators", JSON.stringify(nextInd)); } catch(e){}
   };
   const toggleCollapse = (key) => setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const addRecord = (id) => {
     if (!formValue.trim()) { showToast("값을 입력해주세요"); return; }
-    setIndicators((prev) => {
-      const records = prev[id] || [];
-      const exists = records.findIndex((r) => r.date === formDate);
-      let updated;
-      if (exists >= 0) { updated = [...records]; updated[exists] = { date: formDate, value: formValue.trim() }; }
-      else { updated = [...records, { date: formDate, value: formValue.trim() }]; }
-      updated.sort((a, b) => a.date.localeCompare(b.date));
-      return { ...prev, [id]: updated };
-    });
+    const prev = { ...indicators };
+    const records = [...(prev[id] || [])];
+    const exists = records.findIndex((r) => r.date === formDate);
+    if (exists >= 0) { records[exists] = { date: formDate, value: formValue.trim() }; }
+    else { records.push({ date: formDate, value: formValue.trim() }); }
+    records.sort((a, b) => a.date.localeCompare(b.date));
+    const next = { ...prev, [id]: records };
+    setIndicators(next);
+    try { window.storage.set("eco-indicators", JSON.stringify(next)); } catch(e){}
     showToast("기록됨");
     setEditingId(null);
     setFormValue("");
   };
 
   const deleteRecord = (id, date) => {
-    setIndicators((prev) => ({ ...prev, [id]: (prev[id] || []).filter((r) => r.date !== date) }));
+    const next = { ...indicators, [id]: (indicators[id] || []).filter((r) => r.date !== date) };
+    setIndicators(next);
+    try { window.storage.set("eco-indicators", JSON.stringify(next)); } catch(e){}
     showToast("삭제됨");
   };
 
   const updateRecord = (id, oldDate, newVal) => {
     if (!newVal.trim()) return;
-    setIndicators((prev) => ({
-      ...prev,
-      [id]: (prev[id] || []).map((r) => r.date === oldDate ? { ...r, value: newVal.trim() } : r),
-    }));
+    const next = { ...indicators, [id]: (indicators[id] || []).map((r) => r.date === oldDate ? { ...r, value: newVal.trim() } : r) };
+    setIndicators(next);
+    try { window.storage.set("eco-indicators", JSON.stringify(next)); } catch(e){}
     setEditingRecord(null);
     setEditRecordVal("");
     showToast("수정됨");
@@ -2606,7 +2624,7 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
 }
 
 /* ═══ DATA MANAGER ═══ */
-function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIndicators, reports, setReports, getStorageSize, showToast, setAutoData, saveAll, onClose }) {
+function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIndicators, reports, setReports, getStorageSize, showToast, setAutoData, autoData, onClose }) {
   const [tab, setTab] = useState("overview");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -2625,6 +2643,7 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
     { id: "scraps", label: "신문 스크랩", size: sizes.scraps, count: scraps.length, unit: "개" },
     { id: "indicators", label: "경제 지표", size: sizes.indicators, count: Object.keys(indicators).filter(k => !k.startsWith("_") && indicators[k]?.length > 0).length, unit: "개 지표" },
     { id: "reports", label: "레포트", size: sizes.reports, count: reports.length, unit: "개" },
+    { id: "autoData", label: "수집 데이터 (auto_data)", size: sizes.autoData || 0, count: autoData ? 1 : 0, unit: "회 수집" },
   ];
 
   const execAction = (action) => {
@@ -2632,16 +2651,19 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
     setConfirmText("");
   };
 
+  // Supabase에 직접 저장하는 헬퍼
+  const saveToDb = (key, data) => { try { window.storage.set(key, JSON.stringify(data)); } catch(e){} };
+
   const confirmAction = () => {
     if (confirmText !== "삭제") return;
     const a = pendingAction;
     if (!a) return;
 
     if (a.type === "page") {
-      if (a.id === "entries") { setEntries({}); try { window.storage.set("journal-entries", JSON.stringify({})); } catch(e){} }
-      else if (a.id === "scraps") { setScraps([]); try { window.storage.set("news-scraps", JSON.stringify([])); } catch(e){} }
-      else if (a.id === "indicators") { const pins = indicators._pins; const cleared = pins ? { _pins: pins } : {}; setIndicators(cleared); try { window.storage.set("eco-indicators", JSON.stringify(cleared)); } catch(e){} }
-      else if (a.id === "reports") { setReports([]); try { window.storage.set("report-archive", JSON.stringify([])); } catch(e){} }
+      if (a.id === "entries") { setEntries({}); saveToDb("journal-entries", {}); }
+      else if (a.id === "scraps") { setScraps([]); saveToDb("news-scraps", []); }
+      else if (a.id === "indicators") { const pins = indicators._pins; const cleared = pins ? { _pins: pins } : {}; setIndicators(cleared); saveToDb("eco-indicators", cleared); }
+      else if (a.id === "reports") { setReports([]); saveToDb("report-archive", []); }
       showToast(`${a.label} 데이터 삭제됨`);
     }
     else if (a.type === "dateRange") {
@@ -2649,44 +2671,48 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
       const from = dateFrom || "0000-00-00";
       const to = dateTo || "9999-99-99";
       if (selectedPage === "all" || selectedPage === "entries") {
-        setEntries(prev => { const n = {}; Object.entries(prev).forEach(([k, v]) => { if (k < from || k > to) n[k] = v; }); return n; });
+        const n = {}; Object.entries(entries).forEach(([k, v]) => { if (k < from || k > to) n[k] = v; });
+        setEntries(n); saveToDb("journal-entries", n);
       }
       if (selectedPage === "all" || selectedPage === "scraps") {
-        setScraps(prev => prev.filter(s => { const d = s.createdAt || ""; return d < from || d > to; }));
+        const n = scraps.filter(s => { const d = s.createdAt || ""; return d < from || d > to; });
+        setScraps(n); saveToDb("news-scraps", n);
       }
       if (selectedPage === "all" || selectedPage === "reports") {
-        setReports(prev => prev.filter(r => { const d = r.date || r.createdAt || ""; return d < from || d > to; }));
+        const n = reports.filter(r => { const d = r.date || r.createdAt || ""; return d < from || d > to; });
+        setReports(n); saveToDb("report-archive", n);
       }
       if (selectedPage === "all" || selectedPage === "indicators") {
-        setIndicators(prev => {
-          const n = { ...prev };
-          Object.keys(n).forEach(k => { if (k.startsWith("_")) return; if (Array.isArray(n[k])) n[k] = n[k].filter(r => r.date < from || r.date > to); });
-          return n;
-        });
+        const n = { ...indicators };
+        Object.keys(n).forEach(k => { if (k.startsWith("_")) return; if (Array.isArray(n[k])) n[k] = n[k].filter(r => r.date < from || r.date > to); });
+        setIndicators(n); saveToDb("eco-indicators", n);
       }
       showToast(`${from} ~ ${to} 기간 데이터 삭제됨`);
     }
     else if (a.type === "scrapCat") {
-      setScraps(prev => prev.filter(s => s.category !== a.catId));
+      const n = scraps.filter(s => s.category !== a.catId);
+      setScraps(n); saveToDb("news-scraps", n);
       showToast(`"${a.catLabel}" 카테고리 스크랩 삭제됨`);
     }
     else if (a.type === "emptyEntries") {
-      setEntries(prev => {
-        const n = {};
-        Object.entries(prev).forEach(([k, v]) => {
-          if (v.memo || v.markets?.some(m => m.value || m.change) || v.bonds?.some(b => b.yield || b.change) || v.sectors?.some(s => s.name) || v.stocks?.some(s => s.name)) n[k] = v;
-        });
-        return n;
+      const n = {};
+      Object.entries(entries).forEach(([k, v]) => {
+        if (v.memo || v.markets?.some(m => m.value || m.change) || v.bonds?.some(b => b.yield || b.change) || v.sectors?.some(s => s.name) || v.stocks?.some(s => s.name)) n[k] = v;
       });
+      setEntries(n); saveToDb("journal-entries", n);
       showToast("빈 일지 삭제됨");
     }
     else if (a.type === "indicatorId") {
-      setIndicators(prev => { const n = { ...prev }; delete n[a.indId]; return n; });
+      const n = { ...indicators }; delete n[a.indId];
+      setIndicators(n); saveToDb("eco-indicators", n);
       showToast(`"${a.indName}" 기록 삭제됨`);
     }
     else if (a.type === "reportFilter") {
-      if (a.filterType === "source") setReports(prev => prev.filter(r => r.source !== a.filterValue));
-      else if (a.filterType === "rating") setReports(prev => prev.filter(r => (r.rating || 3) > a.filterValue));
+      let n;
+      if (a.filterType === "source") n = reports.filter(r => r.source !== a.filterValue);
+      else if (a.filterType === "rating") n = reports.filter(r => (r.rating || 3) > a.filterValue);
+      else n = reports;
+      setReports(n); saveToDb("report-archive", n);
       showToast("필터된 레포트 삭제됨");
     }
     else if (a.type === "autoData") {
@@ -2699,8 +2725,6 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
           } else {
             showToast("삭제 실패. Supabase 연결을 확인해주세요.");
           }
-        } else {
-          showToast("삭제 함수를 찾을 수 없습니다.");
         }
       })();
     }
@@ -2751,6 +2775,7 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
               <div style={{ textAlign: "center", marginBottom: 16 }}>
                 <span style={{ fontSize: 32, fontWeight: 800, fontFamily: C.mono, color: Number(pct) > 80 ? C.down : Number(pct) > 60 ? "#F59E0B" : C.accent }}>{totalMB}</span>
                 <span style={{ fontSize: 14, color: C.textDim, marginLeft: 4 }}>MB / 500 MB</span>
+                <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>Supabase 저장소 사용량 (추정)</div>
                 <div style={{ ...MS.bar, marginTop: 10 }}>
                   <div style={MS.barFill(Number(pct), Number(pct) > 80 ? C.down : Number(pct) > 60 ? "#F59E0B" : C.accent)} />
                 </div>
@@ -2772,7 +2797,7 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
           {tab === "page" && (
             <div>
               <p style={{ fontSize: 12, color: C.textDim, marginBottom: 12 }}>삭제할 페이지를 선택하세요. 해당 페이지의 모든 데이터가 삭제됩니다.</p>
-              {pageInfo.map((p) => (
+              {pageInfo.filter(p => p.id !== "autoData").map((p) => (
                 <div key={p.id} style={{ ...MS.row, gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
