@@ -2003,6 +2003,11 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     const autoIds = new Set(AUTO_IDS);
     setIndicators((prev) => {
       const next = { ...prev };
+      // 이전 코드에서 잘못 수집된 ISM PMI 데이터 정리 (PMI는 0~100 범위)
+      if (next.us_ism) {
+        next.us_ism = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
+        if (next.us_ism.length === 0) delete next.us_ism;
+      }
       // FRED 데이터: 자동 지표는 기존 기록을 새 데이터로 완전 교체
       for (const [id, data] of Object.entries(fredData)) {
         if (skipKeys.has(id) || id.startsWith("_")) continue;
