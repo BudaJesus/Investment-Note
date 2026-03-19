@@ -47,11 +47,6 @@ const FRED_SERIES = {
   "us_nfp":      { id: "PAYEMS", units: "chg" },         // 비농업고용 변동(천명)
   "us_claims":   { id: "ICSA", units: "lin" },           // 실업수당 청구(건)
   "us_jolts":    { id: "JTSJOL", units: "lin" },         // JOLTS 구인건수(천건)
-  "kr_unemp_fred": { id: "LRHUTTTTKTM156S", units: "lin" }, // 한국 실업률 %
-  "kr_rate_fred": { id: "IRSTCB01KRM156N", units: "lin" }, // 한국 기준금리 % (FRED)
-
-  // 기타
-  "oil_inv":     { id: "WCESTUS1", units: "chg" },       // 원유재고 주간 변동(천배럴)
 };
 
 // ISM PMI는 FRED에 신뢰할 수 있는 시리즈가 없음 → 수동 입력
@@ -67,8 +62,7 @@ const FRED_RELEASES = {
 
 // ═══ ECOS — 한국 지표 (FRED에 없거나 지연되는 것) ═══
 const ECOS_SERIES = {
-  "kr_rate":     { table: "722Y001", item: "0101000", freq: "M" },  // 한은 기준금리
-  "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M", yoy: true }, // 근원물가 지수 → YoY 계산
+  "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M", yoy: true }, // 근원물가 지수 → YoY
 };
 
 async function fetchYahoo() {
@@ -222,9 +216,6 @@ export default async function handler(req, res) {
     }
     // FRED 한국 데이터를 프론트엔드가 기대하는 ID로 복사
     if (fred.kr_cpi_fred) fred.kr_cpi = fred.kr_cpi_fred;
-    if (fred.kr_unemp_fred) fred.kr_unemp = fred.kr_unemp_fred;
-    // FRED 한국금리가 있으면 ECOS보다 우선, 없으면 ECOS 유지
-    if (fred.kr_rate_fred && fred.kr_rate_fred.length > 0) fred.kr_rate = fred.kr_rate_fred;
     // 실업수당 청구: FRED는 건수(205000) 반환 → 천건 단위(205)로 변환
     if (fred.us_claims) {
       fred.us_claims = fred.us_claims.map(o => ({ ...o, value: (parseFloat(o.value) / 1000).toFixed(0) }));

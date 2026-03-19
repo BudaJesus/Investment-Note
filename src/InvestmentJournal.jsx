@@ -1926,7 +1926,7 @@ const INDICATOR_DEFS = [
 
 const CAT_COLORS = { "금리": "#3B6FF5", "물가/경기": "#E8590C", "고용": "#0E9F6E", "기타": "#9333EA" };
 
-const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_rate","kr_cpi","kr_core_cpi","kr_unemp","oil_inv"]);
+const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi"]);
 
 const COUNTRY_META = [
   { id: "us", flag: "\u{1f1fa}\u{1f1f8}", name: "미국", color: "#3B6FF5" },
@@ -1999,16 +1999,31 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
   const syncAutoData = () => {
     setSyncLoading(true);
     let count = 0;
-    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "kr_unemp_fred", "kr_rate_fred", "us2y_yield"]);
+    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "us2y_yield"]);
     const autoIds = new Set(AUTO_IDS);
     setIndicators((prev) => {
       const next = { ...prev };
-      // 이전 코드에서 잘못 수집된 ISM PMI 데이터 정리 (PMI는 0~100 범위)
+      // 이전 코드에서 잘못 수집된 데이터 정리
+      // ISM PMI: 0~100 범위 → 100 초과 값 제거
       if (next.us_ism) {
         next.us_ism = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
         if (next.us_ism.length === 0) delete next.us_ism;
       }
-      // FRED 데이터: 자동 지표는 기존 기록을 새 데이터로 완전 교체
+      // 한국 기준금리: 현재 2.5%인데 3.0% 이상 값이 있으면 옛날 잘못된 데이터 → 제거
+      if (next.kr_rate) {
+        next.kr_rate = (next.kr_rate || []).filter(r => {
+          const v = parseFloat(r.value);
+          const d = r.date || "";
+          // 2025년 이후 데이터인데 2.75% 초과면 잘못된 값
+          return !(d >= "2025" && v > 2.75);
+        });
+        if (next.kr_rate.length === 0) delete next.kr_rate;
+      }
+      // 원유재고: 주간 변동은 ±수천 범위. 수십만 이상이면 옛날 잘못된 총재고량 → 제거
+      if (next.oil_inv) {
+        next.oil_inv = (next.oil_inv || []).filter(r => Math.abs(parseFloat(r.value)) < 50000);
+        if (next.oil_inv.length === 0) delete next.oil_inv;
+      }
       for (const [id, data] of Object.entries(fredData)) {
         if (skipKeys.has(id) || id.startsWith("_")) continue;
         const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
@@ -2069,12 +2084,9 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     }, 300);
   };
 
-  // 페이지 열릴 때 자동으로 크롤링 데이터 반영
+  // 페이지 열릴 때 자동 동기화 하지 않음 — "자동 입력" 버튼을 눌러야만 반영
   useEffect(() => {
-    if (!autoSynced && autoData && (Object.keys(fredData).length > 0 || Object.keys(ecosData).length > 0)) {
-      syncAutoData();
-      setAutoSynced(true);
-    } else if (!autoSynced && autoData && Object.keys(fredData).length === 0 && Object.keys(ecosData).length === 0) {
+    if (!autoSynced && autoData) {
       setAutoSynced(true);
     }
   }, [autoData, autoSynced]);
