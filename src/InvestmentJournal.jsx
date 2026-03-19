@@ -379,7 +379,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
         </div>
       )}
 
-      {showDataMgr && <DataManager entries={entries} setEntries={setEntries} scraps={scraps} setScraps={setScraps} indicators={indicators} setIndicators={setIndicators} reports={reports} setReports={setReports} getStorageSize={getStorageSize} showToast={showToast} setAutoData={setAutoData} onClose={() => setShowDataMgr(false)} />}
+      {showDataMgr && <DataManager entries={entries} setEntries={setEntries} scraps={scraps} setScraps={setScraps} indicators={indicators} setIndicators={setIndicators} reports={reports} setReports={setReports} getStorageSize={getStorageSize} showToast={showToast} setAutoData={setAutoData} saveAll={saveAll} onClose={() => setShowDataMgr(false)} />}
 
       {/* Page Toggle */}
       <div style={S.pageToggleBar}>
@@ -2606,7 +2606,7 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
 }
 
 /* ═══ DATA MANAGER ═══ */
-function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIndicators, reports, setReports, getStorageSize, showToast, setAutoData, onClose }) {
+function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIndicators, reports, setReports, getStorageSize, showToast, setAutoData, saveAll, onClose }) {
   const [tab, setTab] = useState("overview");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -2706,6 +2706,8 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
     }
     setPendingAction(null);
     setConfirmText("");
+    // 삭제 후 즉시 Supabase에 저장 (새로고침해도 복원 안 되도록)
+    setTimeout(() => { if (saveAll) saveAll(); }, 200);
   };
 
   const exportData = () => {
