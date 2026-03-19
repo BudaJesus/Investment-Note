@@ -232,6 +232,31 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
     })();
   }, []);
 
+  // 이전 코드에서 잘못 수집된 데이터 정리 (최초 로드 시 1회 실행)
+  useEffect(() => {
+    if (!loaded) return;
+    let changed = false;
+    setIndicators((prev) => {
+      const next = { ...prev };
+      // ISM PMI: 0~100 범위 → 100 초과 값 제거
+      if (next.us_ism) {
+        const filtered = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
+        if (filtered.length !== (next.us_ism || []).length) { next.us_ism = filtered.length > 0 ? filtered : undefined; changed = true; }
+      }
+      // 한국 기준금리: 2025년 이후 2.75% 초과 → 잘못된 데이터 제거
+      if (next.kr_rate) {
+        const filtered = (next.kr_rate || []).filter(r => !(r.date >= "2025" && parseFloat(r.value) > 2.75));
+        if (filtered.length !== (next.kr_rate || []).length) { next.kr_rate = filtered.length > 0 ? filtered : undefined; changed = true; }
+      }
+      // 원유재고: 주간 변동은 ±수천. 수십만 이상 → 옛날 총재고량 제거
+      if (next.oil_inv) {
+        const filtered = (next.oil_inv || []).filter(r => Math.abs(parseFloat(r.value)) < 50000);
+        if (filtered.length !== (next.oil_inv || []).length) { next.oil_inv = filtered.length > 0 ? filtered : undefined; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [loaded]);
+
   const getStorageSize = useCallback(() => {
     const sizes = {
       entries: JSON.stringify(entries).length,
