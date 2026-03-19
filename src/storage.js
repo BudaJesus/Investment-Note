@@ -112,4 +112,17 @@ export async function getLatestAutoData() {
 window.getAutoData = getAutoData
 window.getLatestAutoData = getLatestAutoData
 
+export async function clearAutoData() {
+  if (!isSupabaseConfigured) return false
+  try {
+    const { error } = await supabase
+      .from('auto_data')
+      .delete()
+      .neq('date_key', '')
+    return !error
+  } catch (e) { return false }
+}
+
+window.clearAutoData = clearAutoData
+
 export default storage

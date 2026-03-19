@@ -375,7 +375,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
         </div>
       )}
 
-      {showDataMgr && <DataManager entries={entries} setEntries={setEntries} scraps={scraps} setScraps={setScraps} indicators={indicators} setIndicators={setIndicators} reports={reports} setReports={setReports} getStorageSize={getStorageSize} showToast={showToast} onClose={() => setShowDataMgr(false)} />}
+      {showDataMgr && <DataManager entries={entries} setEntries={setEntries} scraps={scraps} setScraps={setScraps} indicators={indicators} setIndicators={setIndicators} reports={reports} setReports={setReports} getStorageSize={getStorageSize} showToast={showToast} setAutoData={setAutoData} onClose={() => setShowDataMgr(false)} />}
 
       {/* Page Toggle */}
       <div style={S.pageToggleBar}>
@@ -2602,7 +2602,7 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
 }
 
 /* ═══ DATA MANAGER ═══ */
-function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIndicators, reports, setReports, getStorageSize, showToast, onClose }) {
+function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIndicators, reports, setReports, getStorageSize, showToast, setAutoData, onClose }) {
   const [tab, setTab] = useState("overview");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -2684,6 +2684,21 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
       if (a.filterType === "source") setReports(prev => prev.filter(r => r.source !== a.filterValue));
       else if (a.filterType === "rating") setReports(prev => prev.filter(r => (r.rating || 3) > a.filterValue));
       showToast("필터된 레포트 삭제됨");
+    }
+    else if (a.type === "autoData") {
+      (async () => {
+        if (window.clearAutoData) {
+          const ok = await window.clearAutoData();
+          if (ok) {
+            setAutoData(null);
+            showToast("수집 데이터(auto_data) 전부 삭제됨. 수치갱신을 다시 눌러주세요.");
+          } else {
+            showToast("삭제 실패. Supabase 연결을 확인해주세요.");
+          }
+        } else {
+          showToast("삭제 함수를 찾을 수 없습니다.");
+        }
+      })();
     }
     setPendingAction(null);
     setConfirmText("");
@@ -2768,6 +2783,13 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
                   <span style={{ fontSize: 10, color: C.textDim, display: "block" }}>내용 없는 빈 일지만 삭제</span>
                 </div>
                 <button style={MS.dangerBtn} onClick={() => execAction({ type: "emptyEntries" })}>빈 일지 삭제</button>
+              </div>
+              <div style={{ ...MS.row, gap: 10, borderTop: `2px solid ${C.down}30`, marginTop: 8, paddingTop: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: C.down }}>수집 데이터 초기화 (Supabase)</span>
+                  <span style={{ fontSize: 10, color: C.textDim, display: "block" }}>수치갱신으로 DB에 쌓인 증시/지표/환율 원본 데이터를 전부 삭제합니다. 삭제 후 수치갱신을 다시 눌러야 합니다.</span>
+                </div>
+                <button style={{ ...MS.dangerBtn, background: C.down + "20" }} onClick={() => execAction({ type: "autoData" })}>수집 데이터 삭제</button>
               </div>
             </div>
           )}
