@@ -1888,7 +1888,7 @@ const INDICATOR_DEFS = [
   { cat: "금리", items: [
     { id: "us_rate", name: "미국 기준금리", unit: "%", country: "us", url: "https://kr.investing.com/economic-calendar/interest-rate-decision-168", desc: "연준(Fed) 목표금리 상단. FOMC에서 결정하는 정책금리" },
     { id: "cn_lpr1y", name: "중국 LPR 1년", unit: "%", country: "cn", url: "https://kr.investing.com/economic-calendar/pboc-loan-prime-rate-1967", desc: "대출우대금리(LPR) 1년물. 일반 대출금리의 기준" },
-    { id: "cn_rrr", name: "중국 예금지준율", unit: "%", country: "cn", url: "https://kr.investing.com/economic-calendar/chinese-reserve-requirement-ratio-1588", desc: "은행이 중앙은행에 의무 예치해야 하는 예금 비율" },
+    { id: "cn_rrr", name: "중국 예금지준율", unit: "%", country: "cn", url: "https://kr.investing.com/economic-calendar/pboc-reserve-requirement-ratio-1084", desc: "은행이 중앙은행에 의무 예치해야 하는 예금 비율" },
     { id: "cn_lpr5y", name: "중국 LPR 5년", unit: "%", country: "cn", url: "https://kr.investing.com/economic-calendar/china-loan-prime-rate-5y-2225", desc: "5년물 LPR. 주택담보대출의 기준금리" },
     { id: "kr_rate", name: "한국 기준금리", unit: "%", country: "kr", url: "https://kr.investing.com/economic-calendar/south-korean-interest-rate-decision-473", desc: "한국은행 금통위가 결정하는 기준금리" },
     { id: "jp_rate", name: "일본 기준금리", unit: "%", country: "jp", url: "https://kr.investing.com/economic-calendar/interest-rate-decision-165", desc: "일본은행(BOJ) 정책금리" },
@@ -1999,39 +1999,63 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     setSyncLoading(true);
     const todayKey = toKey(new Date());
     let count = 0;
+    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "kr_unemp_fred", "kr_rate_fred", "us2y_yield"]);
     setIndicators((prev) => {
       const next = { ...prev };
       for (const [id, data] of Object.entries(fredData)) {
+        if (skipKeys.has(id) || id.startsWith("_")) continue;
         const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
-        const records = next[id] || [];
+        let records = [...(next[id] || [])];
         for (const item of arr) {
           if (!item?.value) continue;
           const dateKey = item.date || todayKey;
-          if (!records.find((r) => r.date === dateKey)) {
+          const existing = records.findIndex((r) => r.date === dateKey);
+          if (existing >= 0) {
+            if (records[existing].value !== item.value) {
+              records[existing] = { date: dateKey, value: item.value };
+              count++;
+            }
+          } else {
             records.push({ date: dateKey, value: item.value });
             count++;
           }
         }
-        next[id] = [...records].sort((a, b) => a.date.localeCompare(b.date));
+        next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
       }
       for (const [id, data] of Object.entries(ecosData)) {
+        if (id.startsWith("_")) continue;
         const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
-        const records = next[id] || [];
+        let records = [...(next[id] || [])];
         for (const item of arr) {
           if (!item?.value) continue;
-          const dateKey = item.date ? `${item.date.slice(0,4)}-${item.date.slice(4,6)}-01` : todayKey;
-          if (!records.find((r) => r.date === dateKey)) {
+          let dateKey;
+          if (item.date && item.date.includes("Q")) {
+            const [yr, qt] = item.date.split("Q");
+            const mon = String(parseInt(qt) * 3).padStart(2, "0");
+            dateKey = `${yr}-${mon}-01`;
+          } else if (item.date && item.date.length === 6) {
+            dateKey = `${item.date.slice(0,4)}-${item.date.slice(4,6)}-01`;
+          } else {
+            dateKey = item.date || todayKey;
+          }
+          const existing = records.findIndex((r) => r.date === dateKey);
+          if (existing >= 0) {
+            if (records[existing].value !== item.value) {
+              records[existing] = { date: dateKey, value: item.value };
+              count++;
+            }
+          } else {
             records.push({ date: dateKey, value: item.value });
             count++;
           }
         }
-        next[id] = [...records].sort((a, b) => a.date.localeCompare(b.date));
+        next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
       }
       return next;
     });
     setTimeout(() => {
       setSyncLoading(false);
-      showToast(count > 0 ? `${count}개 지표 자동 입력됨` : "새로운 데이터가 없습니다 (이미 최신)");
+      showToast(count > 0 ? `${count}개 지표 업데이트됨` : "새로운 데이터가 없습니다 (이미 최신)");
     }, 300);
   };
 
@@ -2205,7 +2229,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
             {Icons.activity} {syncLoading ? "동기화 중..." : "경제 지표 자동 입력 (FRED + ECOS)"}
           </button>
           <p style={{ fontSize: 8, color: C.textDim, margin: 0, textAlign: "center" }}>
-            {autoData?.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 수집" : ""} | 새 데이터만 추가 (기존 기록 유지)
+            {autoData?.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 수집" : ""} | 최신 데이터로 업데이트 (기존 값 덮어쓰기)
           </p>
         </div>
       )}

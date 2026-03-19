@@ -18,37 +18,40 @@ const YAHOO_SYMBOLS = {
   "usdkrw": "KRW=X", "usdjpy": "JPY=X", "dxy": "DX-Y.NYB",
 };
 
-// ═══ FRED — 미국/유럽/일본 지표 (올바른 시리즈 + 단위 변환) ═══
+// ═══ FRED — 미국/유럽/일본/한국 지표 ═══
 // units: lin=원래값, pc1=전년동기비%, pch=전기대비%, chg=전기대비변동
 const FRED_SERIES = {
-  // 금리 (목표금리/정책금리 — 그대로 %)
-  "us_rate":     { id: "DFEDTARU", units: "lin" },    // 연준 목표금리 상단 (예: 4.50)
-  "eu_rate":     { id: "ECBMRRFR", units: "lin" },    // ECB 기준금리
-  "jp_rate":     { id: "IRSTCB01JPM156N", units: "lin" }, // 일본은행 정책금리
-  "jp_cpi":      { id: "JPNCPIALLMINMEI", units: "pc1" }, // 일본 CPI YoY%
-  "eu_cpi":      { id: "CP0000EZ19M086NEST", units: "lin" }, // 유로 HICP YoY% (이미 YoY)
-  "us2y_yield":  { id: "DGS2", units: "lin" },         // 미국 2년물 금리
+  // 금리
+  "us_rate":     { id: "DFEDTARU", units: "lin" },       // 연준 목표금리 상단
+  "eu_rate":     { id: "ECBMRRFR", units: "lin" },       // ECB 기준금리
+  "jp_rate":     { id: "IRSTCB01JPM156N", units: "lin" },// 일본은행 정책금리
+  "us2y_yield":  { id: "DGS2", units: "lin" },           // 미국 2년물 금리
 
-  // 물가 (전년동기대비 % 변화율)
-  "us_cpi":      { id: "CPIAUCSL", units: "pc1" },    // CPI YoY%
-  "us_core_cpi": { id: "CPILFESL", units: "pc1" },    // 근원 CPI YoY%
-  "us_pce":      { id: "PCEPI", units: "pc1" },       // PCE YoY%
-  "us_core_pce": { id: "PCEPILFE", units: "pc1" },    // 근원 PCE YoY%
-  "us_ppi":      { id: "PPIFIS", units: "pc1" },      // PPI 최종수요 YoY%
+  // 물가 — 미국 (전년동기대비 %)
+  "us_cpi":      { id: "CPIAUCSL", units: "pc1" },       // CPI YoY%
+  "us_core_cpi": { id: "CPILFESL", units: "pc1" },       // 근원 CPI YoY%
+  "us_pce":      { id: "PCEPI", units: "pc1" },          // PCE YoY%
+  "us_core_pce": { id: "PCEPILFE", units: "pc1" },       // 근원 PCE YoY%
+  "us_ppi":      { id: "PPIFIS", units: "pc1" },         // PPI 최종수요 YoY%
 
-  // 경기 (전월대비 %)
-  "us_retail":   { id: "RSAFS", units: "pch" },       // 소매판매 MoM%
+  // 물가 — 일본/유로/한국 (이미 YoY%인 시리즈 사용)
+  "jp_cpi":      { id: "FPCPITOTLZGJPN", units: "lin" }, // 일본 CPI YoY% (이미 %)
+  "eu_cpi":      { id: "FPCPITOTLZGEMU", units: "lin" }, // 유로존 CPI YoY% (이미 %)
+  "kr_cpi_fred": { id: "FPCPITOTLZGKOR", units: "lin" }, // 한국 CPI YoY% (이미 %)
+
+  // 경기
+  "us_retail":   { id: "RSAFS", units: "pch" },          // 소매판매 MoM%
 
   // 고용
-  "us_unemp":    { id: "UNRATE", units: "lin" },      // 실업률 % (그대로)
-  "us_nfp":      { id: "PAYEMS", units: "chg" },      // 비농업고용 전월대비 변동 (천명)
-  "us_claims":   { id: "ICSA", units: "lin" },         // 주간 실업수당 청구 (건)
-  "us_jolts":    { id: "JTSJOL", units: "lin" },       // JOLTS 구인건수 (천건)
+  "us_unemp":    { id: "UNRATE", units: "lin" },         // 미국 실업률 %
+  "us_nfp":      { id: "PAYEMS", units: "chg" },         // 비농업고용 변동(천명)
+  "us_claims":   { id: "ICSA", units: "lin" },           // 실업수당 청구(건)
+  "us_jolts":    { id: "JTSJOL", units: "lin" },         // JOLTS 구인건수(천건)
+  "kr_unemp_fred": { id: "LRHUTTTTKTM156S", units: "lin" }, // 한국 실업률 %
+  "kr_rate_fred": { id: "IRSTCB01KRM156N", units: "lin" }, // 한국 기준금리 % (FRED)
 
   // 기타
-  "oil_inv":     { id: "WCESTUS1", units: "chg" },    // 원유재고 주간 변동 (천배럴)
-  "jp_cpi":      { id: "JPNCPIALLMINMEI", units: "pc1" },  // 일본 CPI YoY%
-  "eu_cpi":      { id: "CP0000EZ19M086NEST", units: "lin" }, // 유로존 HICP YoY% (이미 %)
+  "oil_inv":     { id: "WCESTUS1", units: "chg" },       // 원유재고 주간 변동(천배럴)
 };
 
 // ISM PMI는 FRED에 신뢰할 수 있는 시리즈가 없음 → 수동 입력
@@ -62,15 +65,12 @@ const FRED_RELEASES = {
   "us_jolts": 110,
 };
 
-// ═══ ECOS — 한국 지표 ═══
-// 주의: CPI/PPI는 전년동기비 테이블 사용
+// ═══ ECOS — 한국 지표 (FRED에 없는 것만) ═══
 const ECOS_SERIES = {
-  "kr_rate":     { table: "722Y001", item: "0101000", freq: "M" },  // 한은 기준금리 %
-  "kr_cpi":      { table: "901Y010", item: "0", freq: "M" },        // CPI 전년동월비 %
-  "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M" },       // 근원물가 전년동월비 %
-  "kr_ppi":      { table: "404Y014", item: "0", freq: "M", yoy: true }, // PPI 지수 → YoY 계산 필요
-  "kr_unemp":    { table: "901Y027", item: "I16A", freq: "M" },     // 실업률 %
-  "kr_gdp_yy":   { table: "200Y003", item: "10111", freq: "Q" },    // GDP 전년동기비 %
+  "kr_rate":     { table: "722Y001", item: "0101000", freq: "M" },  // 한은 기준금리
+  "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M", yoy: true }, // 근원물가 지수 → YoY 계산
+  "kr_ppi":      { table: "404Y014", item: "*", freq: "M", yoy: true },  // PPI 총지수 → YoY 계산
+  "kr_gdp_yy":   { table: "200Y002", item: "10111", freq: "Q" },    // GDP 전년동기비 %
 };
 
 async function fetchYahoo() {
@@ -221,6 +221,14 @@ export default async function handler(req, res) {
       const prev = fred.us2y_yield.length > 1 ? fred.us2y_yield[1] : null;
       const chg = prev ? (parseFloat(latest.value) - parseFloat(prev.value)).toFixed(2) : null;
       yahoo.us2y = { price: latest.value, change: chg ? (chg > 0 ? `+${chg}%` : `${chg}%`) : null };
+    }
+    // FRED 한국 데이터를 프론트엔드가 기대하는 ID로 복사
+    if (fred.kr_cpi_fred) fred.kr_cpi = fred.kr_cpi_fred;
+    if (fred.kr_unemp_fred) fred.kr_unemp = fred.kr_unemp_fred;
+    if (fred.kr_rate_fred) fred.kr_rate = fred.kr_rate_fred; // FRED가 더 최신
+    // 실업수당 청구: FRED는 건수(205000) 반환 → 천건 단위(205)로 변환
+    if (fred.us_claims) {
+      fred.us_claims = fred.us_claims.map(o => ({ ...o, value: (parseFloat(o.value) / 1000).toFixed(0) }));
     }
     const { error } = await supabase
       .from('auto_data')
