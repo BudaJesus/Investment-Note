@@ -61,8 +61,18 @@ const FRED_RELEASES = {
 };
 
 // ═══ ECOS — 한국 지표 (FRED에 없거나 지연되는 것) ═══
+// FRED의 한국 데이터는 3~6개월 지연 → 한국은행 ECOS에서 직접 가져오기
 const ECOS_SERIES = {
-  "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M", yoy: true }, // 근원물가 지수 → YoY
+  // 근원물가 (식료품·에너지 제외 소비자물가지수)
+  "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M", yoy: true },
+  // 한국 CPI 총지수 (FRED보다 빠름)
+  "kr_cpi_ecos": { table: "901Y009", item: "0", freq: "M", yoy: true },
+  // 한국 기준금리
+  "kr_rate_ecos": { table: "722Y001", item: "0101000", freq: "M", yoy: false },
+  // 한국 생산자물가지수 (총지수)
+  "kr_ppi_ecos": { table: "404Y014", item: "*AA", freq: "M", yoy: true },
+  // 한국 실업률 (경제활동인구조사)
+  "kr_unemp_ecos": { table: "901Y027", item: "I11", freq: "M", yoy: false },
 };
 
 async function fetchYahoo() {
@@ -93,9 +103,14 @@ async function fetchFred() {
   const apiKey = process.env.FRED_API_KEY;
   if (!apiKey) return {};
   const results = {};
+  // 최근 2년 데이터만 조회 (오래된 데이터 방지)
+  const twoYearsAgo = new Date();
+  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+  const obsStart = twoYearsAgo.toISOString().slice(0, 10);
+
   for (const [id, cfg] of Object.entries(FRED_SERIES)) {
     try {
-      const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${cfg.id}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=30&units=${cfg.units}`;
+      const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${cfg.id}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=10&units=${cfg.units}&observation_start=${obsStart}`;
       const res = await fetch(url);
       if (!res.ok) continue;
       const data = await res.json();
@@ -193,11 +208,11 @@ async function fetchEcos() {
             }
           }
         }
-        if (yoyResults.length > 0) results[id] = yoyResults.slice(-3);
+        if (yoyResults.length > 0) results[id] = yoyResults.slice(-5);
         else errors.push({ id, msg: "yoy calc failed", rowCount: rows.length });
       } else {
         const sorted = [...rows].sort((a, b) => a.TIME.localeCompare(b.TIME));
-        results[id] = sorted.slice(-3).map(r => ({ value: r.DATA_VALUE, date: r.TIME }));
+        results[id] = sorted.slice(-5).map(r => ({ value: r.DATA_VALUE, date: r.TIME }));
       }
     } catch (e) {
       errors.push({ id, error: e.message });
@@ -221,17 +236,62 @@ export default async function handler(req, res) {
       const chg = prev ? (parseFloat(latest.value) - parseFloat(prev.value)).toFixed(2) : null;
       yahoo.us2y = { price: latest.value, change: chg ? (chg > 0 ? `+${chg}%` : `${chg}%`) : null };
     }
-    // FRED 한국 데이터를 프론트엔드가 기대하는 ID로 복사
-    if (fred.kr_cpi_fred) fred.kr_cpi = fred.kr_cpi_fred;
     // 실업수당 청구: FRED는 건수(205000) 반환 → 천건 단위(205)로 변환
     if (fred.us_claims) {
       fred.us_claims = fred.us_claims.map(o => ({ ...o, value: (parseFloat(o.value) / 1000).toFixed(0) }));
+    }
+
+    // ═══ 한국 데이터: ECOS(직접) vs FRED(지연) 비교 → 더 최신 데이터 사용 ═══
+    const getLatestDate = (arr) => arr && arr.length > 0 ? arr[arr.length - 1]?.date || arr[0]?.date || "" : "";
+
+    // ECOS → 프론트엔드 ID 매핑
+    const ecosMappings = {
+      "kr_cpi_ecos": "kr_cpi",
+      "kr_rate_ecos": "kr_rate",
+      "kr_ppi_ecos": "kr_ppi",
+      "kr_unemp_ecos": "kr_unemp",
+    };
+    for (const [ecosKey, frontendKey] of Object.entries(ecosMappings)) {
+      if (ecos[ecosKey]) {
+        ecos[frontendKey] = ecos[ecosKey];
+        delete ecos[ecosKey];
+      }
+    }
+
+    // FRED 한국 CPI vs ECOS 한국 CPI: 더 최신인 것을 사용
+    const fredKrCpiDate = getLatestDate(fred.kr_cpi_fred);
+    const ecosKrCpiDate = getLatestDate(ecos.kr_cpi);
+    if (ecosKrCpiDate >= fredKrCpiDate && ecos.kr_cpi) {
+      // ECOS가 더 최신 → ECOS 데이터를 fred.kr_cpi에도 복사 (프론트엔드 호환)
+      fred.kr_cpi = ecos.kr_cpi;
+    } else if (fred.kr_cpi_fred) {
+      fred.kr_cpi = fred.kr_cpi_fred;
     }
     const { error } = await supabase
       .from('auto_data')
       .upsert({ date_key: dateKey, yahoo_data: yahoo, fred_data: fred, ecos_data: ecos, release_dates: fredDates, fetched_at: timestamp }, { onConflict: 'date_key' });
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ success: true, date: dateKey, counts: { yahoo: Object.keys(yahoo).length, fred: Object.keys(fred).length, fredDates: Object.keys(fredDates).length, ecos: Object.keys(ecos).length }, ecosErrors: ecos._ecos_errors || null });
+
+    // 신선도 요약 생성
+    const freshnessSummary = {};
+    const today = new Date();
+    const checkFreshness = (source, id, data) => {
+      if (!data || !Array.isArray(data) || data.length === 0) return;
+      const latestDate = data[0]?.date || data[data.length - 1]?.date;
+      if (!latestDate) return;
+      const diffDays = Math.floor((today - new Date(latestDate)) / 86400000);
+      if (diffDays > 60) freshnessSummary[id] = { source, latestDate, daysOld: diffDays, status: "stale" };
+      else if (diffDays > 30) freshnessSummary[id] = { source, latestDate, daysOld: diffDays, status: "aging" };
+    };
+    for (const [id, data] of Object.entries(fred)) { if (Array.isArray(data)) checkFreshness("fred", id, data); }
+    for (const [id, data] of Object.entries(ecos)) { if (Array.isArray(data)) checkFreshness("ecos", id, data); }
+
+    return res.status(200).json({
+      success: true, date: dateKey,
+      counts: { yahoo: Object.keys(yahoo).length, fred: Object.keys(fred).length, fredDates: Object.keys(fredDates).length, ecos: Object.keys(ecos).length },
+      ecosErrors: ecos._ecos_errors || null,
+      staleIndicators: Object.keys(freshnessSummary).length > 0 ? freshnessSummary : null,
+    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

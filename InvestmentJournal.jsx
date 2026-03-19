@@ -414,7 +414,11 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                     const ad = await window.getLatestAutoData();
                     if (ad) setAutoData(ad);
                   }
-                  showToast("수치 갱신 완료! 대시보드 새로고침 / 경제지표 자동입력을 눌러주세요.");
+                  const staleCount = data.staleIndicators ? Object.keys(data.staleIndicators).length : 0;
+                  const msg = staleCount > 0
+                    ? `수치 갱신 완료! (${staleCount}개 지표 데이터 지연 — 경제지표 페이지에서 확인)`
+                    : "수치 갱신 완료! 대시보드 새로고침 / 경제지표 자동입력을 눌러주세요.";
+                  showToast(msg, 3000);
                 } else { showToast("오류: " + (data.error || "실패")); }
               } catch (e) { showToast("네트워크 오류"); }
             }} title="데이터 수집 실행">수치 갱신</button>
@@ -2093,7 +2097,7 @@ const INDICATOR_DEFS = [
 
 const CAT_COLORS = { "금리": "#3B6FF5", "물가/경기": "#E8590C", "고용": "#0E9F6E", "기타": "#9333EA" };
 
-const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi"]);
+const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi","kr_rate","kr_ppi","kr_unemp"]);
 
 // 지표별 예상 업데이트 주기 (일): 이 기간이 지나면 "outdated" 표시
 const INDICATOR_FREQ_DAYS = {
