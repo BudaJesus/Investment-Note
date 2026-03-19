@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#1A1D23" />
+    <meta name="description" content="투자 노트 — 매일의 투자 기록을 체계적으로" />
+    <title>투자 노트</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif; background: #F7F8FA; -webkit-font-smoothing: antialiased; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      input:focus, textarea:focus, select:focus { border-color: #2563EB !important; box-shadow: 0 0 0 2px rgba(37,99,235,0.08); }
+      ::selection { background: rgba(37,99,235,0.12); }
+      ::-webkit-scrollbar { width: 4px; height: 4px; }
+      ::-webkit-scrollbar-thumb { background: #C8CCD4; border-radius: 2px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
