@@ -324,8 +324,51 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                 const res = await fetch("/api/fetch-data");
                 const data = await res.json();
                 if (data.success) {
-                  showToast("수치 업데이트 완료! 새로고침하세요");
-                  setTimeout(() => window.location.reload(), 1500);
+                  // 1. DB에서 최신 auto_data 다시 불러오기
+                  let newAutoData = null;
+                  if (window.getLatestAutoData) {
+                    newAutoData = await window.getLatestAutoData();
+                  }
+                  if (newAutoData) {
+                    setAutoData(newAutoData);
+                    // 2. 자동 수집 지표 데이터 완전 교체
+                    const fd = newAutoData.fred_data || {};
+                    const ed = newAutoData.ecos_data || {};
+                    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "kr_unemp_fred", "kr_rate_fred", "us2y_yield"]);
+                    const autoIds = AUTO_IDS;
+                    setIndicators((prev) => {
+                      const next = { ...prev };
+                      for (const [id, d] of Object.entries(fd)) {
+                        if (skipKeys.has(id) || id.startsWith("_")) continue;
+                        const arr = Array.isArray(d) ? d : (d?.value ? [d] : []);
+                        const nr = arr.filter(item => item?.value).map(item => ({ date: item.date, value: item.value }));
+                        if (nr.length > 0 && autoIds.has(id)) {
+                          next[id] = nr.sort((a, b) => a.date.localeCompare(b.date));
+                        }
+                      }
+                      for (const [id, d] of Object.entries(ed)) {
+                        if (id.startsWith("_")) continue;
+                        const arr = Array.isArray(d) ? d : (d?.value ? [d] : []);
+                        const nr = [];
+                        for (const item of arr) {
+                          if (!item?.value) continue;
+                          let dk;
+                          if (item.date && item.date.includes("Q")) { const [yr, qt] = item.date.split("Q"); dk = `${yr}-${String(parseInt(qt)*3).padStart(2,"0")}-01`; }
+                          else if (item.date && item.date.length === 6) { dk = `${item.date.slice(0,4)}-${item.date.slice(4,6)}-01`; }
+                          else { dk = item.date || toKey(new Date()); }
+                          nr.push({ date: dk, value: item.value });
+                        }
+                        if (nr.length > 0 && autoIds.has(id)) {
+                          next[id] = nr.sort((a, b) => a.date.localeCompare(b.date));
+                        }
+                      }
+                      return next;
+                    });
+                    showToast("수치 갱신 완료!");
+                  } else {
+                    showToast("수치 업데이트 완료! 새로고침하세요");
+                    setTimeout(() => window.location.reload(), 1500);
+                  }
                 } else { showToast("오류: " + (data.error || "실패")); }
               } catch (e) { showToast("네트워크 오류"); }
             }} title="데이터 수집 실행">수치 갱신</button>
@@ -1926,6 +1969,8 @@ const INDICATOR_DEFS = [
 
 const CAT_COLORS = { "금리": "#3B6FF5", "물가/경기": "#E8590C", "고용": "#0E9F6E", "기타": "#9333EA" };
 
+const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_rate","kr_cpi","kr_core_cpi","kr_unemp","oil_inv"]);
+
 const COUNTRY_META = [
   { id: "us", flag: "\u{1f1fa}\u{1f1f8}", name: "미국", color: "#3B6FF5" },
   { id: "kr", flag: "\u{1f1f0}\u{1f1f7}", name: "한국", color: "#E02D3C" },
@@ -1986,8 +2031,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
   const [collapsed, setCollapsed] = useState({});
   const [autoSynced, setAutoSynced] = useState(false);
 
-  // Auto-collectible indicator IDs (FRED + ECOS)
-  const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_rate","kr_cpi","kr_core_cpi","kr_unemp","oil_inv"]);
+  // Auto-collectible indicator IDs (FRED + ECOS) — defined at module scope
   const isAutoIndicator = (id) => AUTO_IDS.has(id);
 
   const fredData = autoData?.fred_data || {};
