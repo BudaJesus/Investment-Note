@@ -2095,6 +2095,32 @@ const CAT_COLORS = { "금리": "#3B6FF5", "물가/경기": "#E8590C", "고용": 
 
 const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi"]);
 
+// 지표별 예상 업데이트 주기 (일): 이 기간이 지나면 "outdated" 표시
+const INDICATOR_FREQ_DAYS = {
+  us_rate: 50, eu_rate: 50, jp_rate: 50, kr_rate: 50,
+  cn_lpr1y: 35, cn_lpr5y: 35, cn_rrr: 120,
+  us_cpi: 40, us_core_cpi: 40, us_pce: 40, us_core_pce: 40, us_ppi: 40,
+  kr_cpi: 40, kr_core_cpi: 40, jp_cpi: 40, eu_cpi: 40, kr_ppi: 40,
+  us_retail: 40, us_ism: 40,
+  us_nfp: 40, us_adp: 40, us_unemp: 40, us_jolts: 60,
+  us_claims: 10, oil_inv: 10,
+  kr_unemp: 40,
+  kr_gdp_qq: 100, kr_gdp_yy: 100, cn_gdp_yy: 100,
+};
+
+// 데이터 신선도 계산
+const getDataFreshness = (latestDate, indicatorId) => {
+  if (!latestDate) return { label: "데이터 없음", color: "#8B919E", level: "none" };
+  const now = new Date();
+  const latest = new Date(latestDate);
+  const diffDays = Math.floor((now - latest) / 86400000);
+  const expectedDays = INDICATOR_FREQ_DAYS[indicatorId] || 45;
+
+  if (diffDays <= expectedDays) return { label: "최신", color: "#16A34A", level: "fresh" };
+  if (diffDays <= expectedDays * 1.5) return { label: `${Math.floor(diffDays / 30)}개월 전`, color: "#F59E0B", level: "aging" };
+  return { label: `${Math.floor(diffDays / 30)}개월+ 지연`, color: "#DC2626", level: "stale" };
+};
+
 const COUNTRY_META = [
   { id: "us", flag: "\u{1f1fa}\u{1f1f8}", name: "미국", color: "#3B6FF5" },
   { id: "kr", flag: "\u{1f1f0}\u{1f1f7}", name: "한국", color: "#E02D3C" },
@@ -2166,6 +2192,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
   const syncAutoData = () => {
     setSyncLoading(true);
     let count = 0;
+    let preserved = 0;
     const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "us2y_yield"]);
     const autoIds = new Set(AUTO_IDS);
 
@@ -2186,13 +2213,28 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
       if (next.oil_inv.length === 0) delete next.oil_inv;
     }
 
+    // 자동/수동 병합 헬퍼: API 데이터 + 기존의 더 새로운 수동 입력 보존
+    const mergeRecords = (existingRecords, newRecords) => {
+      const merged = [...newRecords];
+      const newDates = new Set(newRecords.map(r => r.date));
+      const latestNewDate = newRecords.length > 0 ? newRecords.reduce((a, b) => a.date > b.date ? a : b).date : "0000-00-00";
+      // 기존 기록 중 API 데이터보다 더 최신인 것은 보존 (수동 입력)
+      for (const r of (existingRecords || [])) {
+        if (!newDates.has(r.date) && r.date > latestNewDate) {
+          merged.push(r);
+          preserved++;
+        }
+      }
+      return merged.sort((a, b) => a.date.localeCompare(b.date));
+    };
+
     // FRED 데이터
     for (const [id, data] of Object.entries(fredData)) {
       if (skipKeys.has(id) || id.startsWith("_")) continue;
       const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
       const newRecords = arr.filter(item => item?.value).map(item => ({ date: item.date, value: item.value }));
       if (newRecords.length > 0 && autoIds.has(id)) {
-        next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
+        next[id] = mergeRecords(next[id], newRecords);
         count += newRecords.length;
       } else if (newRecords.length > 0) {
         const records = [...(next[id] || [])];
@@ -2225,7 +2267,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
         newRecords.push({ date: dateKey, value: item.value });
       }
       if (newRecords.length > 0 && autoIds.has(id)) {
-        next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
+        next[id] = mergeRecords(next[id], newRecords);
         count += newRecords.length;
       } else if (newRecords.length > 0) {
         const records = [...(next[id] || [])];
@@ -2245,7 +2287,10 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
 
     setTimeout(() => {
       setSyncLoading(false);
-      showToast(count > 0 ? `${count}개 지표 업데이트됨` : "새로운 데이터가 없습니다 (이미 최신)");
+      const msg = count > 0
+        ? `${count}개 지표 업데이트됨` + (preserved > 0 ? ` (수동 입력 ${preserved}건 보존)` : "")
+        : "새로운 데이터가 없습니다 (이미 최신)";
+      showToast(msg, 2500);
     }, 300);
   };
 
@@ -2311,6 +2356,8 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     }
   };
 
+  const releaseDates = autoData?.release_dates || {};
+
   const fmtNum = (v) => { const n = parseFloat(v); if (isNaN(n)) return v; return n.toLocaleString("en-US", { maximumFractionDigits: 2 }); };
 
   const renderRow = (item, color) => {
@@ -2322,6 +2369,8 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     const isExpanded = expandedId === item.id;
     const isPinned = pins.includes(item.id);
     const isAuto = isAutoIndicator(item.id);
+    const freshness = getDataFreshness(latest?.date, item.id);
+    const nextRelease = releaseDates[item.id]?.date;
     let diffStr = null;
     if (latest && prev) {
       const diff = (parseFloat(latest.value) - parseFloat(prev.value)).toFixed(2);
@@ -2337,6 +2386,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
             {item.name}
             {item.tag && <span style={{ fontSize: 7, fontWeight: 600, color: C.accent, background: C.accentDim, padding: "1px 4px", borderRadius: 2, flexShrink: 0 }}>{item.tag}</span>}
             {!isAuto && <span style={{ fontSize: 7, fontWeight: 600, color: "#F59E0B", background: "#F59E0B15", padding: "1px 4px", borderRadius: 2, flexShrink: 0 }}>수동</span>}
+            {freshness.level === "stale" && <span style={{ fontSize: 7, fontWeight: 600, color: freshness.color, background: freshness.color + "12", padding: "1px 4px", borderRadius: 2, flexShrink: 0 }} title={`마지막 데이터: ${latest?.date || "없음"}`}>{freshness.label}</span>}
           </a>
           <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
             {third && <span style={{ fontSize: 9, color: C.textDim, fontFamily: C.mono, cursor: "help" }} title={third.date}>{fmtNum(third.value)}</span>}
@@ -2346,7 +2396,10 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
             <span style={{ ...S.tblVal, minWidth: "auto", cursor: latest ? "help" : "default" }} title={latest?.date || ""}>{latest ? fmtNum(latest.value) + item.unit : "—"}</span>
           </div>
           {diffStr ? <span style={{ ...S.tblDiff, color: diffStr.color }}>{diffStr.text}</span> : <span style={S.tblDiff}>—</span>}
-          <span style={S.tblDate}>{latest ? latest.date.slice(5) : ""}</span>
+          <span style={{ ...S.tblDate, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+            <span>{latest ? latest.date.slice(5) : ""}</span>
+            {nextRelease && <span style={{ fontSize: 7, color: "#16A34A", fontWeight: 600 }} title={`다음 발표: ${nextRelease}`}>→{nextRelease.slice(5)}</span>}
+          </span>
           <div style={{ width: 64, flexShrink: 0 }}>{records.length >= 2 && <MiniChart data={records} color={color} width={64} height={24} />}</div>
           <button style={S.tblBtn} onClick={() => { setEditingId(isEditing ? null : item.id); setFormValue(""); setFormDate(toKey(new Date())); }} title="기록">{isEditing ? Icons.x : Icons.plus}</button>
           {records.length > 0 && <button style={S.tblBtn} onClick={() => { setExpandedId(isExpanded ? null : item.id); setChartPeriod("all"); }} title="상세">{Icons.barChart}</button>}
@@ -2417,13 +2470,32 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
             {Icons.activity} {syncLoading ? "동기화 중..." : "경제 지표 자동 입력 (FRED + ECOS)"}
           </button>
           <p style={{ fontSize: 8, color: C.textDim, margin: 0, textAlign: "center" }}>
-            {autoData?.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 수집" : ""} | 최신 데이터로 업데이트 (기존 값 덮어쓰기)
+            {autoData?.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 수집" : ""} | 수동 입력한 최신값은 보존됩니다
           </p>
         </div>
       )}
-      <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 9, color: C.textDim }}>
+      {/* 지연 지표 요약 */}
+      {(() => {
+        const staleItems = ALL_ITEMS.filter(item => {
+          const records = indicators[item.id] || [];
+          if (records.length === 0) return false;
+          const f = getDataFreshness(records[records.length - 1]?.date, item.id);
+          return f.level === "stale";
+        });
+        if (staleItems.length === 0) return null;
+        return (
+          <div style={{ background: "#DC262608", border: "1px solid #DC262620", borderRadius: 6, padding: "8px 12px", marginBottom: 10, fontSize: 11 }}>
+            <span style={{ fontWeight: 600, color: "#DC2626" }}>⚠ 업데이트 지연 지표 ({staleItems.length}개): </span>
+            <span style={{ color: C.textMid }}>{staleItems.slice(0, 6).map(i => i.name).join(", ")}{staleItems.length > 6 ? ` 외 ${staleItems.length - 6}개` : ""}</span>
+            <span style={{ fontSize: 9, color: C.textDim, display: "block", marginTop: 2 }}>FRED/ECOS 발표 지연이거나 수동 입력이 필요한 지표입니다. 지표명 클릭 시 investing.com에서 최신값을 확인할 수 있습니다.</span>
+          </div>
+        );
+      })()}
+      <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 9, color: C.textDim, flexWrap: "wrap" }}>
         <span>자동 수집 = FRED/ECOS에서 가져오는 지표</span>
         <span style={{ color: "#F59E0B", display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 6, height: 6, background: "#F59E0B", borderRadius: 1, display: "inline-block" }} />수동 = 직접 입력 필요</span>
+        <span style={{ color: "#DC2626", display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 6, height: 6, background: "#DC2626", borderRadius: 1, display: "inline-block" }} />지연 = 예상 주기 초과</span>
+        <span style={{ color: "#16A34A", display: "flex", alignItems: "center", gap: 3 }}><span style={{ fontSize: 8 }}>→</span>다음 발표일 (FRED 확정)</span>
       </div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
