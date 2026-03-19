@@ -1987,7 +1987,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
   const [autoSynced, setAutoSynced] = useState(false);
 
   // Auto-collectible indicator IDs (FRED + ECOS)
-  const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_rate","kr_cpi","kr_core_cpi","kr_ppi","kr_unemp","kr_gdp_yy","oil_inv"]);
+  const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_rate","kr_cpi","kr_core_cpi","kr_unemp","oil_inv"]);
   const isAutoIndicator = (id) => AUTO_IDS.has(id);
 
   const fredData = autoData?.fred_data || {};
@@ -1997,59 +1997,63 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
 
   const syncAutoData = () => {
     setSyncLoading(true);
-    const todayKey = toKey(new Date());
     let count = 0;
     const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "kr_unemp_fred", "kr_rate_fred", "us2y_yield"]);
+    const autoIds = new Set(AUTO_IDS);
     setIndicators((prev) => {
       const next = { ...prev };
+      // FRED 데이터: 자동 지표는 기존 기록을 새 데이터로 완전 교체
       for (const [id, data] of Object.entries(fredData)) {
         if (skipKeys.has(id) || id.startsWith("_")) continue;
         const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
-        let records = [...(next[id] || [])];
-        for (const item of arr) {
-          if (!item?.value) continue;
-          const dateKey = item.date || todayKey;
-          const existing = records.findIndex((r) => r.date === dateKey);
-          if (existing >= 0) {
-            if (records[existing].value !== item.value) {
-              records[existing] = { date: dateKey, value: item.value };
-              count++;
-            }
-          } else {
-            records.push({ date: dateKey, value: item.value });
-            count++;
+        const newRecords = arr.filter(item => item?.value).map(item => ({ date: item.date, value: item.value }));
+        if (newRecords.length > 0 && autoIds.has(id)) {
+          // 자동 수집 지표: 완전 교체 (옛날 잘못된 데이터 제거)
+          next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
+          count += newRecords.length;
+        } else if (newRecords.length > 0) {
+          // 수동 지표: 기존 방식 (추가만)
+          const records = [...(next[id] || [])];
+          for (const item of newRecords) {
+            const ei = records.findIndex(r => r.date === item.date);
+            if (ei >= 0) records[ei] = item;
+            else records.push(item);
           }
+          next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
+          count += newRecords.length;
         }
-        next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
       }
+      // ECOS 데이터: 동일 로직
       for (const [id, data] of Object.entries(ecosData)) {
         if (id.startsWith("_")) continue;
         const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
-        let records = [...(next[id] || [])];
+        const newRecords = [];
         for (const item of arr) {
           if (!item?.value) continue;
           let dateKey;
           if (item.date && item.date.includes("Q")) {
             const [yr, qt] = item.date.split("Q");
-            const mon = String(parseInt(qt) * 3).padStart(2, "0");
-            dateKey = `${yr}-${mon}-01`;
+            dateKey = `${yr}-${String(parseInt(qt) * 3).padStart(2, "0")}-01`;
           } else if (item.date && item.date.length === 6) {
             dateKey = `${item.date.slice(0,4)}-${item.date.slice(4,6)}-01`;
           } else {
-            dateKey = item.date || todayKey;
+            dateKey = item.date || toKey(new Date());
           }
-          const existing = records.findIndex((r) => r.date === dateKey);
-          if (existing >= 0) {
-            if (records[existing].value !== item.value) {
-              records[existing] = { date: dateKey, value: item.value };
-              count++;
-            }
-          } else {
-            records.push({ date: dateKey, value: item.value });
-            count++;
-          }
+          newRecords.push({ date: dateKey, value: item.value });
         }
-        next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
+        if (newRecords.length > 0 && autoIds.has(id)) {
+          next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
+          count += newRecords.length;
+        } else if (newRecords.length > 0) {
+          const records = [...(next[id] || [])];
+          for (const item of newRecords) {
+            const ei = records.findIndex(r => r.date === item.date);
+            if (ei >= 0) records[ei] = item;
+            else records.push(item);
+          }
+          next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
+          count += newRecords.length;
+        }
       }
       return next;
     });

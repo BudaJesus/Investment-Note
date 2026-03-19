@@ -67,10 +67,7 @@ const FRED_RELEASES = {
 
 // ═══ ECOS — 한국 지표 (FRED에 없는 것만) ═══
 const ECOS_SERIES = {
-  "kr_rate":     { table: "722Y001", item: "0101000", freq: "M" },  // 한은 기준금리
   "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M", yoy: true }, // 근원물가 지수 → YoY 계산
-  "kr_ppi":      { table: "404Y014", item: "*", freq: "M", yoy: true },  // PPI 총지수 → YoY 계산
-  "kr_gdp_yy":   { table: "200Y002", item: "10111", freq: "Q" },    // GDP 전년동기비 %
 };
 
 async function fetchYahoo() {
