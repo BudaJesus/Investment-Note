@@ -344,17 +344,21 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
         <div style={S.headerActions}>
           {userEmail === "younjino8755@gmail.com" && (
             <button style={{ ...S.logoutBtn, color: C.up, borderColor: C.up + "40" }} onClick={async () => {
-              showToast("수치 가져오는 중...");
+              showToast("이전 수집 데이터 정리 중...");
               try {
+                // 1. 이전 수집 데이터 삭제
+                if (window.clearAutoData) await window.clearAutoData();
+                // 2. 새로 수집
+                showToast("최신 수치 가져오는 중...");
                 const res = await fetch("/api/fetch-data");
                 const data = await res.json();
                 if (data.success) {
-                  // auto_data만 갱신, 경제지표에는 반영하지 않음
+                  // 3. 새 auto_data 읽어오기
                   if (window.getLatestAutoData) {
                     const ad = await window.getLatestAutoData();
                     if (ad) setAutoData(ad);
                   }
-                  showToast("수치 갱신 완료! 경제지표 페이지에서 '자동 입력' 버튼을 눌러주세요.");
+                  showToast("수치 갱신 완료! 경제지표 페이지에서 '자동 입력'을 눌러주세요.");
                 } else { showToast("오류: " + (data.error || "실패")); }
               } catch (e) { showToast("네트워크 오류"); }
             }} title="데이터 수집 실행">수치 갱신</button>
