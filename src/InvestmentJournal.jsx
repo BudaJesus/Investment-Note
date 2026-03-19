@@ -2638,10 +2638,10 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
     if (!a) return;
 
     if (a.type === "page") {
-      if (a.id === "entries") setEntries({});
-      else if (a.id === "scraps") setScraps([]);
-      else if (a.id === "indicators") { const pins = indicators._pins; setIndicators(pins ? { _pins: pins } : {}); }
-      else if (a.id === "reports") setReports([]);
+      if (a.id === "entries") { setEntries({}); try { window.storage.set("journal-entries", JSON.stringify({})); } catch(e){} }
+      else if (a.id === "scraps") { setScraps([]); try { window.storage.set("news-scraps", JSON.stringify([])); } catch(e){} }
+      else if (a.id === "indicators") { const pins = indicators._pins; const cleared = pins ? { _pins: pins } : {}; setIndicators(cleared); try { window.storage.set("eco-indicators", JSON.stringify(cleared)); } catch(e){} }
+      else if (a.id === "reports") { setReports([]); try { window.storage.set("report-archive", JSON.stringify([])); } catch(e){} }
       showToast(`${a.label} 데이터 삭제됨`);
     }
     else if (a.type === "dateRange") {
@@ -2706,8 +2706,6 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
     }
     setPendingAction(null);
     setConfirmText("");
-    // 삭제 후 즉시 Supabase에 저장 (새로고침해도 복원 안 되도록)
-    setTimeout(() => { if (saveAll) saveAll(); }, 200);
   };
 
   const exportData = () => {
