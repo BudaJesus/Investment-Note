@@ -65,8 +65,9 @@ const FRED_RELEASES = {
   "us_jolts": 110,
 };
 
-// ═══ ECOS — 한국 지표 (FRED에 없는 것만) ═══
+// ═══ ECOS — 한국 지표 (FRED에 없거나 지연되는 것) ═══
 const ECOS_SERIES = {
+  "kr_rate":     { table: "722Y001", item: "0101000", freq: "M" },  // 한은 기준금리
   "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M", yoy: true }, // 근원물가 지수 → YoY 계산
 };
 
@@ -100,7 +101,7 @@ async function fetchFred() {
   const results = {};
   for (const [id, cfg] of Object.entries(FRED_SERIES)) {
     try {
-      const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${cfg.id}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=10&units=${cfg.units}`;
+      const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${cfg.id}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=30&units=${cfg.units}`;
       const res = await fetch(url);
       if (!res.ok) continue;
       const data = await res.json();
@@ -222,7 +223,8 @@ export default async function handler(req, res) {
     // FRED 한국 데이터를 프론트엔드가 기대하는 ID로 복사
     if (fred.kr_cpi_fred) fred.kr_cpi = fred.kr_cpi_fred;
     if (fred.kr_unemp_fred) fred.kr_unemp = fred.kr_unemp_fred;
-    if (fred.kr_rate_fred) fred.kr_rate = fred.kr_rate_fred; // FRED가 더 최신
+    // FRED 한국금리가 있으면 ECOS보다 우선, 없으면 ECOS 유지
+    if (fred.kr_rate_fred && fred.kr_rate_fred.length > 0) fred.kr_rate = fred.kr_rate_fred;
     // 실업수당 청구: FRED는 건수(205000) 반환 → 천건 단위(205)로 변환
     if (fred.us_claims) {
       fred.us_claims = fred.us_claims.map(o => ({ ...o, value: (parseFloat(o.value) / 1000).toFixed(0) }));
