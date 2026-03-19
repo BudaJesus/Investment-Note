@@ -357,7 +357,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                     const ad = await window.getLatestAutoData();
                     if (ad) setAutoData(ad);
                   }
-                  showToast("수치 갱신 완료! 경제지표 페이지에서 '자동 입력'을 눌러주세요.");
+                  showToast("수치 갱신 완료! 대시보드 새로고침 / 경제지표 자동입력을 눌러주세요.");
                 } else { showToast("오류: " + (data.error || "실패")); }
               } catch (e) { showToast("네트워크 오류"); }
             }} title="데이터 수집 실행">수치 갱신</button>
@@ -1531,7 +1531,7 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
           if (isEditing) {
             return (
               <div key={idx.id} style={{ background: C.card, border: `1px solid ${C.accent}`, borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
-                <div style={{ fontSize: 8, color: C.textDim, marginBottom: 2 }}>{idx.label}</div>
+                <a href={idx.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 8, color: C.textDim, marginBottom: 2, textDecoration: "none", display: "block" }}>{idx.label}</a>
                 <input style={{ width: "90%", fontSize: 10, fontFamily: C.mono, border: `1px solid ${C.border}`, borderRadius: 3, padding: "2px 4px", textAlign: "center", outline: "none" }}
                   value={bondInput} onChange={(e) => setBondInput(e.target.value)} autoFocus
                   onKeyDown={(e) => { if (e.key === "Enter" && bondInput.trim()) saveManualBond(idx.id, bondInput.trim()); if (e.key === "Escape") setEditingBondId(null); }}
@@ -1546,21 +1546,40 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
 
           if (!displayVal) {
             return (
-              <div key={idx.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 4px", textAlign: "center", cursor: isManual ? "pointer" : "default" }}
-                onClick={isManual ? () => { setEditingBondId(idx.id); setBondInput(manualVal || ""); } : undefined}>
-                <div style={{ fontSize: 8, color: C.textDim }}>{idx.label}</div>
-                <div style={{ fontSize: 9, color: C.textDim }}>{isManual ? "클릭하여 입력" : "—"}</div>
+              <div key={idx.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
+                {isManual ? (
+                  <>
+                    <a href={idx.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 8, color: C.textDim, textDecoration: "none", display: "block" }}>{idx.label}</a>
+                    <div style={{ fontSize: 9, color: C.accent, cursor: "pointer" }} onClick={() => { setEditingBondId(idx.id); setBondInput(manualVal || ""); }}>클릭하여 입력</div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 8, color: C.textDim }}>{idx.label}</div>
+                    <div style={{ fontSize: 9, color: C.textDim }}>—</div>
+                  </>
+                )}
               </div>
             );
           }
 
           const isUp = displayChg?.includes("+");
           const isDown = displayChg?.includes("-");
+          if (isManual) {
+            return (
+              <div key={idx.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 4px", textAlign: "center", position: "relative" }}>
+                <a href={idx.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 8, color: C.textDim, marginBottom: 1, textDecoration: "none", display: "block", cursor: "pointer" }}
+                  onClick={(e) => e.stopPropagation()}>{idx.label}</a>
+                <div style={{ cursor: "pointer" }} onClick={() => { setEditingBondId(idx.id); setBondInput(manualVal || displayVal); }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, fontFamily: C.mono, color: C.text }}>{displayVal}<span style={{ fontSize: 6, color: "#F59E0B", marginLeft: 2 }}>✎</span></div>
+                  {displayChg && <div style={{ fontSize: 8, fontWeight: 600, fontFamily: C.mono, color: isUp ? C.up : isDown ? C.down : C.textDim }}>{displayChg}</div>}
+                </div>
+              </div>
+            );
+          }
           return (
             <a key={idx.id} href={idx.url} target="_blank" rel="noopener noreferrer"
-              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 4px", textAlign: "center", textDecoration: "none", cursor: "pointer", position: "relative" }}
-              onClick={isManual ? (e) => { e.preventDefault(); setEditingBondId(idx.id); setBondInput(manualVal || displayVal); } : undefined}>
-              <div style={{ fontSize: 8, color: C.textDim, marginBottom: 1 }}>{idx.label}{isManual && <span style={{ fontSize: 6, color: "#F59E0B", marginLeft: 2 }}>✎</span>}</div>
+              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 4px", textAlign: "center", textDecoration: "none", cursor: "pointer", position: "relative" }}>
+              <div style={{ fontSize: 8, color: C.textDim, marginBottom: 1 }}>{idx.label}</div>
               <div style={{ fontSize: 10, fontWeight: 700, fontFamily: C.mono, color: C.text }}>{displayVal}</div>
               {displayChg && <div style={{ fontSize: 8, fontWeight: 600, fontFamily: C.mono, color: isUp ? C.up : isDown ? C.down : C.textDim }}>{displayChg}</div>}
             </a>
