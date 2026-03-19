@@ -2097,7 +2097,8 @@ const INDICATOR_DEFS = [
 
 const CAT_COLORS = { "금리": "#3B6FF5", "물가/경기": "#E8590C", "고용": "#0E9F6E", "기타": "#9333EA" };
 
-const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi","kr_rate","kr_ppi","kr_unemp"]);
+const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi","kr_rate","kr_ppi","kr_unemp"]);
+// jp_rate: FRED 시리즈(IRSTCB01JPM156N) 2023년 12월 이후 업데이트 중단 → 수동 입력 전용
 
 // 지표별 예상 업데이트 주기 (일): 이 기간이 지나면 "outdated" 표시
 const INDICATOR_FREQ_DAYS = {
@@ -2197,7 +2198,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     setSyncLoading(true);
     let count = 0;
     let preserved = 0;
-    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "us2y_yield"]);
+    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "us2y_yield", "jp_rate"]);
     const autoIds = new Set(AUTO_IDS);
 
     // 새 indicators를 직접 계산

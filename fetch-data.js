@@ -18,35 +18,40 @@ const YAHOO_SYMBOLS = {
   "usdkrw": "KRW=X", "usdjpy": "JPY=X", "dxy": "DX-Y.NYB",
 };
 
-// ═══ FRED — 미국/유럽/일본/한국 지표 ═══
+// ═══ FRED — 미국/유럽/일본 지표 ═══
 // units: lin=원래값, pc1=전년동기비%, pch=전기대비%, chg=전기대비변동
+// ⚠️ 시리즈 선택 원칙:
+//   - 반드시 Monthly 또는 Daily 시리즈만 사용 (Annual/Quarterly 금지)
+//   - World Bank(FPCPITOTLZG...) 시리즈는 Annual → 사용 금지
+//   - OECD(IRSTCB01...) 시리즈는 업데이트 중단 가능 → 주의
 const FRED_SERIES = {
-  // 금리
-  "us_rate":     { id: "DFEDTARU", units: "lin" },       // 연준 목표금리 상단
-  "eu_rate":     { id: "ECBMRRFR", units: "lin" },       // ECB 기준금리
-  "jp_rate":     { id: "IRSTCB01JPM156N", units: "lin" },// 일본은행 정책금리
-  "us2y_yield":  { id: "DGS2", units: "lin" },           // 미국 2년물 금리
+  // ── 금리 ──
+  "us_rate":     { id: "DFEDTARU", units: "lin" },       // 연준 목표금리 상단 (Daily) ✅
+  "eu_rate":     { id: "ECBMRRFR", units: "lin" },       // ECB 기준금리 (Daily) ✅
+  // jp_rate: FRED에 신뢰할 수 있는 월간/일간 시리즈 없음 → ECOS 또는 수동
+  "us2y_yield":  { id: "DGS2", units: "lin" },           // 미국 2년물 금리 (Daily) ✅
 
-  // 물가 — 미국 (전년동기대비 %)
-  "us_cpi":      { id: "CPIAUCSL", units: "pc1" },       // CPI YoY%
-  "us_core_cpi": { id: "CPILFESL", units: "pc1" },       // 근원 CPI YoY%
-  "us_pce":      { id: "PCEPI", units: "pc1" },          // PCE YoY%
-  "us_core_pce": { id: "PCEPILFE", units: "pc1" },       // 근원 PCE YoY%
-  "us_ppi":      { id: "PPIFIS", units: "pc1" },         // PPI 최종수요 YoY%
+  // ── 물가: 미국 (Monthly index + pc1 = YoY%) ──
+  "us_cpi":      { id: "CPIAUCSL", units: "pc1" },       // CPI 전체 → YoY% ✅
+  "us_core_cpi": { id: "CPILFESL", units: "pc1" },       // 근원 CPI → YoY% ✅
+  "us_pce":      { id: "PCEPI", units: "pc1" },          // PCE → YoY% ✅
+  "us_core_pce": { id: "PCEPILFE", units: "pc1" },       // 근원 PCE → YoY% ✅
+  "us_ppi":      { id: "PPIFIS", units: "pc1" },         // PPI 최종수요 → YoY% ✅
 
-  // 물가 — 일본/유로/한국 (이미 YoY%인 시리즈 사용)
-  "jp_cpi":      { id: "FPCPITOTLZGJPN", units: "lin" }, // 일본 CPI YoY% (이미 %)
-  "eu_cpi":      { id: "FPCPITOTLZGEMU", units: "lin" }, // 유로존 CPI YoY% (이미 %)
-  "kr_cpi_fred": { id: "FPCPITOTLZGKOR", units: "lin" }, // 한국 CPI YoY% (이미 %)
+  // ── 물가: 일본/유로 (Monthly OECD index + pc1 = YoY%) ──
+  // 기존 FPCPITOTLZG 시리즈는 World Bank Annual → 폐기
+  "jp_cpi":      { id: "JPNCPIALLMINMEI", units: "pc1" },// 일본 CPI 전체 (OECD Monthly index) → YoY% ✅
+  "eu_cpi":      { id: "CP0000EZ19M086NEST", units: "pc1" }, // 유로존 HICP (Eurostat Monthly index) → YoY% ✅
+  // kr_cpi: FRED 한국 CPI는 World Bank Annual → ECOS에서 직접 가져옴
 
-  // 경기
-  "us_retail":   { id: "RSAFS", units: "pch" },          // 소매판매 MoM%
+  // ── 경기 ──
+  "us_retail":   { id: "RSAFS", units: "pch" },          // 소매판매 MoM% (Monthly) ✅
 
-  // 고용
-  "us_unemp":    { id: "UNRATE", units: "lin" },         // 미국 실업률 %
-  "us_nfp":      { id: "PAYEMS", units: "chg" },         // 비농업고용 변동(천명)
-  "us_claims":   { id: "ICSA", units: "lin" },           // 실업수당 청구(건)
-  "us_jolts":    { id: "JTSJOL", units: "lin" },         // JOLTS 구인건수(천건)
+  // ── 고용 ──
+  "us_unemp":    { id: "UNRATE", units: "lin" },         // 미국 실업률 % (Monthly) ✅
+  "us_nfp":      { id: "PAYEMS", units: "chg" },         // 비농업고용 변동 천명 (Monthly) ✅
+  "us_claims":   { id: "ICSA", units: "lin" },           // 실업수당 청구 건 (Weekly) ✅
+  "us_jolts":    { id: "JTSJOL", units: "lin" },         // JOLTS 구인건수 천건 (Monthly) ✅
 };
 
 // ISM PMI는 FRED에 신뢰할 수 있는 시리즈가 없음 → 수동 입력
@@ -241,10 +246,8 @@ export default async function handler(req, res) {
       fred.us_claims = fred.us_claims.map(o => ({ ...o, value: (parseFloat(o.value) / 1000).toFixed(0) }));
     }
 
-    // ═══ 한국 데이터: ECOS(직접) vs FRED(지연) 비교 → 더 최신 데이터 사용 ═══
-    const getLatestDate = (arr) => arr && arr.length > 0 ? arr[arr.length - 1]?.date || arr[0]?.date || "" : "";
-
-    // ECOS → 프론트엔드 ID 매핑
+    // ═══ ECOS → 프론트엔드 ID 매핑 ═══
+    // ECOS 키를 프론트엔드가 기대하는 ID로 변환
     const ecosMappings = {
       "kr_cpi_ecos": "kr_cpi",
       "kr_rate_ecos": "kr_rate",
@@ -257,16 +260,8 @@ export default async function handler(req, res) {
         delete ecos[ecosKey];
       }
     }
-
-    // FRED 한국 CPI vs ECOS 한국 CPI: 더 최신인 것을 사용
-    const fredKrCpiDate = getLatestDate(fred.kr_cpi_fred);
-    const ecosKrCpiDate = getLatestDate(ecos.kr_cpi);
-    if (ecosKrCpiDate >= fredKrCpiDate && ecos.kr_cpi) {
-      // ECOS가 더 최신 → ECOS 데이터를 fred.kr_cpi에도 복사 (프론트엔드 호환)
-      fred.kr_cpi = ecos.kr_cpi;
-    } else if (fred.kr_cpi_fred) {
-      fred.kr_cpi = fred.kr_cpi_fred;
-    }
+    // kr_cpi: ECOS가 유일한 소스 (FRED World Bank Annual 시리즈 폐기)
+    // jp_rate: FRED에 신뢰할 수 있는 시리즈 없음 → 수동 입력 전용
     const { error } = await supabase
       .from('auto_data')
       .upsert({ date_key: dateKey, yahoo_data: yahoo, fred_data: fred, ecos_data: ecos, release_dates: fredDates, fetched_at: timestamp }, { onConflict: 'date_key' });
