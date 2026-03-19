@@ -324,51 +324,8 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                 const res = await fetch("/api/fetch-data");
                 const data = await res.json();
                 if (data.success) {
-                  // 1. DB에서 최신 auto_data 다시 불러오기
-                  let newAutoData = null;
-                  if (window.getLatestAutoData) {
-                    newAutoData = await window.getLatestAutoData();
-                  }
-                  if (newAutoData) {
-                    setAutoData(newAutoData);
-                    // 2. 자동 수집 지표 데이터 완전 교체
-                    const fd = newAutoData.fred_data || {};
-                    const ed = newAutoData.ecos_data || {};
-                    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "kr_unemp_fred", "kr_rate_fred", "us2y_yield"]);
-                    const autoIds = AUTO_IDS;
-                    setIndicators((prev) => {
-                      const next = { ...prev };
-                      for (const [id, d] of Object.entries(fd)) {
-                        if (skipKeys.has(id) || id.startsWith("_")) continue;
-                        const arr = Array.isArray(d) ? d : (d?.value ? [d] : []);
-                        const nr = arr.filter(item => item?.value).map(item => ({ date: item.date, value: item.value }));
-                        if (nr.length > 0 && autoIds.has(id)) {
-                          next[id] = nr.sort((a, b) => a.date.localeCompare(b.date));
-                        }
-                      }
-                      for (const [id, d] of Object.entries(ed)) {
-                        if (id.startsWith("_")) continue;
-                        const arr = Array.isArray(d) ? d : (d?.value ? [d] : []);
-                        const nr = [];
-                        for (const item of arr) {
-                          if (!item?.value) continue;
-                          let dk;
-                          if (item.date && item.date.includes("Q")) { const [yr, qt] = item.date.split("Q"); dk = `${yr}-${String(parseInt(qt)*3).padStart(2,"0")}-01`; }
-                          else if (item.date && item.date.length === 6) { dk = `${item.date.slice(0,4)}-${item.date.slice(4,6)}-01`; }
-                          else { dk = item.date || toKey(new Date()); }
-                          nr.push({ date: dk, value: item.value });
-                        }
-                        if (nr.length > 0 && autoIds.has(id)) {
-                          next[id] = nr.sort((a, b) => a.date.localeCompare(b.date));
-                        }
-                      }
-                      return next;
-                    });
-                    showToast("수치 갱신 완료!");
-                  } else {
-                    showToast("수치 업데이트 완료! 새로고침하세요");
-                    setTimeout(() => window.location.reload(), 1500);
-                  }
+                  showToast("수치 갱신 완료! 새로고침 중...");
+                  setTimeout(() => window.location.reload(), 1000);
                 } else { showToast("오류: " + (data.error || "실패")); }
               } catch (e) { showToast("네트워크 오류"); }
             }} title="데이터 수집 실행">수치 갱신</button>
