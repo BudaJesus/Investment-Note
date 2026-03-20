@@ -232,28 +232,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
     })();
   }, []);
 
-  // 이전 코드에서 잘못 수집된 데이터 정리 (최초 로드 시 1회 실행)
-  useEffect(() => {
-    if (!loaded) return;
-    let changed = false;
-    const next = { ...indicators };
-    if (next.us_ism) {
-      const filtered = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
-      if (filtered.length !== (next.us_ism || []).length) { next.us_ism = filtered.length > 0 ? filtered : undefined; changed = true; }
-    }
-    if (next.kr_rate) {
-      const filtered = (next.kr_rate || []).filter(r => !(r.date >= "2025" && parseFloat(r.value) > 2.75));
-      if (filtered.length !== (next.kr_rate || []).length) { next.kr_rate = filtered.length > 0 ? filtered : undefined; changed = true; }
-    }
-    if (next.oil_inv) {
-      const filtered = (next.oil_inv || []).filter(r => Math.abs(parseFloat(r.value)) < 50000);
-      if (filtered.length !== (next.oil_inv || []).length) { next.oil_inv = filtered.length > 0 ? filtered : undefined; changed = true; }
-    }
-    if (changed) {
-      setIndicators(next);
-      try { window.storage.set("eco-indicators", JSON.stringify(next)); } catch(e){}
-    }
-  }, [loaded]);
+  // Legacy data cleanup removed — no longer using FRED/ECOS
 
   const getStorageSize = useCallback(() => {
     const sizes = {
@@ -345,22 +324,19 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
             <button style={{ ...S.logoutBtn, color: C.up, borderColor: C.up + "40" }} onClick={async () => {
               showToast("이전 수집 데이터 정리 중...");
               try {
-                // 1. 이전 수집 데이터 삭제
                 if (window.clearAutoData) await window.clearAutoData();
-                // 2. 새로 수집
-                showToast("최신 수치 가져오는 중...");
-                const res = await fetch("/api/fetch-data");
+                showToast("최신 시장 수치 가져오는 중...");
+                const res = await fetch("/api/fetch-data?mode=market");
                 const data = await res.json();
                 if (data.success) {
-                  // 3. 새 auto_data 읽어오기
                   if (window.getLatestAutoData) {
                     const ad = await window.getLatestAutoData();
                     if (ad) setAutoData(ad);
                   }
-                  showToast("수치 갱신 완료! 대시보드 새로고침 / 경제지표 자동입력을 눌러주세요.");
+                  showToast("시장 수치 갱신 완료!");
                 } else { showToast("오류: " + (data.error || "실패")); }
               } catch (e) { showToast("네트워크 오류"); }
-            }} title="데이터 수집 실행">수치 갱신</button>
+            }} title="시장 데이터 수집 (증시/채권/환율/원자재)">수치 갱신</button>
           )}
           {onLogout && <button style={S.logoutBtn} onClick={onLogout} title={userEmail}>로그아웃</button>}
           <button style={{ ...S.logoutBtn, fontSize: 10 }} onClick={() => setShowDataMgr(true)} title="데이터 관리">{Icons.layers}</button>
@@ -464,7 +440,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
 
       {page === "scrap" && <ScrapPage scraps={scraps} setScraps={setScraps} showToast={showToast} />}
 
-      {page === "indicators" && <IndicatorsPage indicators={indicators} setIndicators={setIndicators} showToast={showToast} autoData={autoData} />}
+      {page === "indicators" && <IndicatorsPage indicators={indicators} setIndicators={setIndicators} showToast={showToast} autoData={autoData} setAutoData={setAutoData} userEmail={userEmail} />}
 
       {page === "reports" && <ReportArchivePage reports={reports} setReports={setReports} customSectors={customSectors} setCustomSectors={setCustomSectors} showToast={showToast} />}
 
@@ -1626,14 +1602,14 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
       {/* Economic Calendar — investing.com widget */}
       <div style={{ marginBottom: 14 }}>
         <p style={H.section}>주요 경제 일정</p>
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           <iframe
-            src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&importance=2,3&countries=5,72,17,25,32&calType=week&timeZone=88&lang=12"
+            src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&importance=2,3&countries=5,11,37,72,35&calType=week&timeZone=88&lang=16"
             width="100%"
             height="400"
             frameBorder="0"
             allowtransparency="true"
-            style={{ display: "block", border: "none" }}
+            style={{ display: "block", border: "none", minWidth: 600 }}
           />
         </div>
         <p style={{ fontSize: 7, color: C.textDim, margin: "4px 0 0", textAlign: "center" }}>
@@ -1929,7 +1905,7 @@ const INDICATOR_DEFS = [
 
 const CAT_COLORS = { "금리": "#3B6FF5", "물가/경기": "#E8590C", "고용": "#0E9F6E", "기타": "#9333EA" };
 
-const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi"]);
+const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi","kr_rate","kr_ppi","kr_unemp","us_ism","us_adp","cn_lpr1y","cn_lpr5y","cn_rrr","oil_inv","kr_gdp_qq","kr_gdp_yy","cn_gdp_yy"]);
 
 const COUNTRY_META = [
   { id: "us", flag: "\u{1f1fa}\u{1f1f8}", name: "미국", color: "#3B6FF5" },
@@ -1961,22 +1937,27 @@ function MiniChart({ data, color, width = 160, height = 48 }) {
     const y = pad + h - ((v - min) / range) * h;
     return `${x},${y}`;
   });
-  const last = vals[vals.length - 1];
-  const prev = vals[vals.length - 2];
-  const trend = last > prev ? "up" : last < prev ? "down" : "flat";
+  // Surprise colors for dots
+  const dotColors = data.map((d) => {
+    if (d.surprise === "positive") return C.up;
+    if (d.surprise === "negative") return C.down;
+    return color;
+  });
   return (
     <svg width={width} height={height} style={{ display: "block" }}>
       <polyline points={points.join(" ")} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       {vals.map((v, i) => {
         const x = pad + (i / (vals.length - 1)) * w;
         const y = pad + h - ((v - min) / range) * h;
-        return <circle key={i} cx={x} cy={y} r={i === vals.length - 1 ? 3 : 1.5} fill={i === vals.length - 1 ? color : color + "80"} />;
+        const isLast = i === vals.length - 1;
+        const dc = dotColors[i] || color;
+        return <circle key={i} cx={x} cy={y} r={isLast ? 3 : 1.5} fill={isLast ? dc : dc + "CC"} />;
       })}
     </svg>
   );
 }
 
-function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
+function IndicatorsPage({ indicators, setIndicators, showToast, autoData, setAutoData, userEmail }) {
   const [filterCat, setFilterCat] = useState("all");
   const [filterCountry, setFilterCountry] = useState("all");
   const [viewBy, setViewBy] = useState("cat");
@@ -1984,111 +1965,83 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
   const [formDate, setFormDate] = useState(toKey(new Date()));
   const [formValue, setFormValue] = useState("");
   const [expandedId, setExpandedId] = useState(null);
-  const [chartPeriod, setChartPeriod] = useState("all");
+  const [chartPeriod, setChartPeriod] = useState("default");
   const [editingRecord, setEditingRecord] = useState(null);
   const [editRecordVal, setEditRecordVal] = useState("");
   const [pins, setPins] = useState(indicators?._pins || []);
   const [collapsed, setCollapsed] = useState({});
   const [autoSynced, setAutoSynced] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  // Auto-collectible indicator IDs (FRED + ECOS) — defined at module scope
+  // Auto-collectible indicator IDs — all indicators are now auto via investing.com
   const isAutoIndicator = (id) => AUTO_IDS.has(id);
 
-  const fredData = autoData?.fred_data || {};
-  const ecosData = autoData?.ecos_data || {};
+  const investingData = autoData?.investing_data || {};
 
   const [syncLoading, setSyncLoading] = useState(false);
 
   const syncAutoData = () => {
     setSyncLoading(true);
     let count = 0;
-    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "us2y_yield"]);
-    const autoIds = new Set(AUTO_IDS);
-
-    // 새 indicators를 직접 계산
     const next = { ...indicators };
 
-    // 이전 코드에서 잘못 수집된 데이터 정리
-    if (next.us_ism) {
-      next.us_ism = (next.us_ism || []).filter(r => parseFloat(r.value) <= 100);
-      if (next.us_ism.length === 0) delete next.us_ism;
-    }
-    if (next.kr_rate) {
-      next.kr_rate = (next.kr_rate || []).filter(r => !(r.date >= "2025" && parseFloat(r.value) > 2.75));
-      if (next.kr_rate.length === 0) delete next.kr_rate;
-    }
-    if (next.oil_inv) {
-      next.oil_inv = (next.oil_inv || []).filter(r => Math.abs(parseFloat(r.value)) < 50000);
-      if (next.oil_inv.length === 0) delete next.oil_inv;
-    }
+    // Investing.com 데이터 → indicators 형식으로 변환
+    for (const [id, data] of Object.entries(investingData)) {
+      if (!data?.records || data.records.length === 0) continue;
+      const newRecords = data.records
+        .filter(r => r.actual !== null && r.actual !== undefined)
+        .map(r => ({
+          date: r.date,
+          value: String(r.actual),
+          forecast: r.forecast != null ? String(r.forecast) : null,
+          previous: r.previous != null ? String(r.previous) : null,
+          surprise: r.surprise || "neutral",
+          period: r.period || "",
+        }));
 
-    // FRED 데이터
-    for (const [id, data] of Object.entries(fredData)) {
-      if (skipKeys.has(id) || id.startsWith("_")) continue;
-      const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
-      const newRecords = arr.filter(item => item?.value).map(item => ({ date: item.date, value: item.value }));
-      if (newRecords.length > 0 && autoIds.has(id)) {
-        next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
-        count += newRecords.length;
-      } else if (newRecords.length > 0) {
-        const records = [...(next[id] || [])];
-        for (const item of newRecords) {
-          const ei = records.findIndex(r => r.date === item.date);
-          if (ei >= 0) records[ei] = item;
-          else records.push(item);
+      if (newRecords.length > 0) {
+        // 기존 수동 입력 데이터 병합 (수동 입력은 보존)
+        const existingManual = (next[id] || []).filter(r => r._manual);
+        const allRecords = [...newRecords];
+        for (const mr of existingManual) {
+          if (!allRecords.find(r => r.date === mr.date)) allRecords.push(mr);
         }
-        next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
+        allRecords.sort((a, b) => a.date.localeCompare(b.date));
+        next[id] = allRecords;
         count += newRecords.length;
+      }
+
+      // 다음 발표 예정일 + forecast 저장
+      if (data.next_date) {
+        next[`_next_${id}`] = {
+          date: data.next_date,
+          time: data.next_time,
+          forecast: data.next_forecast,
+          previous: data.next_previous,
+        };
       }
     }
 
-    // ECOS 데이터
-    for (const [id, data] of Object.entries(ecosData)) {
-      if (id.startsWith("_")) continue;
-      const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
-      const newRecords = [];
-      for (const item of arr) {
-        if (!item?.value) continue;
-        let dateKey;
-        if (item.date && item.date.includes("Q")) {
-          const [yr, qt] = item.date.split("Q");
-          dateKey = `${yr}-${String(parseInt(qt) * 3).padStart(2, "0")}-01`;
-        } else if (item.date && item.date.length === 6) {
-          dateKey = `${item.date.slice(0,4)}-${item.date.slice(4,6)}-01`;
-        } else {
-          dateKey = item.date || toKey(new Date());
-        }
-        newRecords.push({ date: dateKey, value: item.value });
-      }
-      if (newRecords.length > 0 && autoIds.has(id)) {
-        next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
-        count += newRecords.length;
-      } else if (newRecords.length > 0) {
-        const records = [...(next[id] || [])];
-        for (const item of newRecords) {
-          const ei = records.findIndex(r => r.date === item.date);
-          if (ei >= 0) records[ei] = item;
-          else records.push(item);
-        }
-        next[id] = records.sort((a, b) => a.date.localeCompare(b.date));
-        count += newRecords.length;
-      }
+    // 단위 정보 저장
+    for (const [id, data] of Object.entries(investingData)) {
+      if (data?.unit) next[`_unit_${id}`] = data.unit;
     }
 
-    // React 상태 + Supabase 즉시 저장
     setIndicators(next);
     try { window.storage.set("eco-indicators", JSON.stringify(next)); } catch(e){}
 
     setTimeout(() => {
       setSyncLoading(false);
-      showToast(count > 0 ? `${count}개 지표 업데이트됨` : "새로운 데이터가 없습니다 (이미 최신)");
+      showToast(count > 0 ? `${count}개 지표 업데이트됨 (Investing.com)` : "새로운 데이터가 없습니다 (이미 최신)");
     }, 300);
   };
 
-  // 페이지 열릴 때 자동 동기화 하지 않음 — "자동 입력" 버튼을 눌러야만 반영
+  // 페이지 열릴 때 자동 동기화 — investing_data가 있으면 자동 반영
   useEffect(() => {
-    if (!autoSynced && autoData) {
+    if (!autoSynced && autoData?.investing_data && Object.keys(autoData.investing_data).length > 0) {
       setAutoSynced(true);
+      syncAutoData();
     }
   }, [autoData, autoSynced]);
 
@@ -2163,8 +2116,18 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
       const diff = (parseFloat(latest.value) - parseFloat(prev.value)).toFixed(2);
       if (diff !== "NaN") { const isUp = diff > 0; const isDown = diff < 0; diffStr = { text: (isUp ? "+" : "") + diff, color: isUp ? C.up : isDown ? C.down : C.textDim }; }
     }
+    // Surprise badge from investing.com data
+    const latestSurprise = latest?.surprise;
+    const surpriseBadge = latestSurprise === "positive" ? { text: "▲", color: C.up, bg: C.upBg }
+      : latestSurprise === "negative" ? { text: "▼", color: C.down, bg: C.downBg }
+      : null;
+    // Forecast from latest record
+    const latestForecast = latest?.forecast;
+    // Next release info
+    const nextInfo = indicators[`_next_${item.id}`];
+
     return (
-      <div key={item.id} style={{ borderLeft: isAuto ? "none" : "2px solid #F59E0B" }}>
+      <div key={item.id}>
         <div style={S.tblRow}>
           <button style={{ ...S.pinBtn, color: isPinned ? "#F59E0B" : C.borderLight }} onClick={() => togglePin(item.id)} title={isPinned ? "즐겨찾기 해제" : "즐겨찾기"}>
             {isPinned ? "\u2605" : "\u2606"}
@@ -2172,20 +2135,26 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
           <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ ...S.tblName, display: "flex", alignItems: "center", gap: 4 }} title={item.desc}>
             {item.name}
             {item.tag && <span style={{ fontSize: 7, fontWeight: 600, color: C.accent, background: C.accentDim, padding: "1px 4px", borderRadius: 2, flexShrink: 0 }}>{item.tag}</span>}
-            {!isAuto && <span style={{ fontSize: 7, fontWeight: 600, color: "#F59E0B", background: "#F59E0B15", padding: "1px 4px", borderRadius: 2, flexShrink: 0 }}>수동</span>}
           </a>
           <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
-            {third && <span style={{ fontSize: 9, color: C.textDim, fontFamily: C.mono, cursor: "help" }} title={third.date}>{fmtNum(third.value)}</span>}
-            {third && <span style={{ fontSize: 8, color: C.borderLight }}>{"\u203A"}</span>}
-            {prev && <span style={{ fontSize: 10, color: C.textMid, fontFamily: C.mono, cursor: "help" }} title={prev.date}>{fmtNum(prev.value)}</span>}
+            {prev && <span style={{ fontSize: 9, color: C.textDim, fontFamily: C.mono, cursor: "help", opacity: 0.6 }} title={`이전: ${prev.date}`}>{fmtNum(prev.value)}</span>}
             {prev && <span style={{ fontSize: 8, color: C.borderLight }}>{"\u203A"}</span>}
-            <span style={{ ...S.tblVal, minWidth: "auto", cursor: latest ? "help" : "default" }} title={latest?.date || ""}>{latest ? fmtNum(latest.value) + item.unit : "—"}</span>
+            {latestForecast != null && <span style={{ fontSize: 9, color: "#7C3AED", fontFamily: C.mono, fontWeight: 600, cursor: "help", background: "#7C3AED12", padding: "1px 3px", borderRadius: 2 }} title="예측">{fmtNum(latestForecast)}</span>}
+            {latestForecast != null && <span style={{ fontSize: 8, color: C.borderLight }}>{"\u203A"}</span>}
+            <span style={{ ...S.tblVal, minWidth: "auto", cursor: latest ? "help" : "default",
+              ...(latestSurprise === "positive" ? { color: C.up, background: C.upBg, padding: "1px 4px", borderRadius: 3 } :
+                  latestSurprise === "negative" ? { color: C.down, background: C.downBg, padding: "1px 4px", borderRadius: 3 } : {})
+            }} title={latest?.date || ""}>{latest ? fmtNum(latest.value) + item.unit : "—"}</span>
           </div>
-          {diffStr ? <span style={{ ...S.tblDiff, color: diffStr.color }}>{diffStr.text}</span> : <span style={S.tblDiff}>—</span>}
+          {surpriseBadge ? (
+            <span style={{ fontSize: 9, fontWeight: 700, color: surpriseBadge.color, background: surpriseBadge.bg, padding: "2px 6px", borderRadius: 4, border: `1px solid ${surpriseBadge.color}30`, flexShrink: 0 }}>{surpriseBadge.text}</span>
+          ) : diffStr ? (
+            <span style={{ ...S.tblDiff, color: diffStr.color }}>{diffStr.text}</span>
+          ) : <span style={S.tblDiff}>—</span>}
           <span style={S.tblDate}>{latest ? latest.date.slice(5) : ""}</span>
-          <div style={{ width: 64, flexShrink: 0 }}>{records.length >= 2 && <MiniChart data={records} color={color} width={64} height={24} />}</div>
+          <div style={{ width: 64, flexShrink: 0 }}>{records.length >= 2 && <MiniChart data={records.slice(-3)} color={color} width={64} height={24} />}</div>
           <button style={S.tblBtn} onClick={() => { setEditingId(isEditing ? null : item.id); setFormValue(""); setFormDate(toKey(new Date())); }} title="기록">{isEditing ? Icons.x : Icons.plus}</button>
-          {records.length > 0 && <button style={S.tblBtn} onClick={() => { setExpandedId(isExpanded ? null : item.id); setChartPeriod("all"); }} title="상세">{Icons.barChart}</button>}
+          {records.length > 0 && <button style={S.tblBtn} onClick={() => { setExpandedId(isExpanded ? null : item.id); setChartPeriod("default"); setDateFrom(""); setDateTo(""); }} title="상세">{Icons.barChart}</button>}
         </div>
         {isEditing && (
           <div style={S.tblEditRow}>
@@ -2196,41 +2165,95 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
         )}
         {isExpanded && records.length > 0 && (() => {
           const filterByPeriod = (recs, period) => {
+            if (period === "default") return recs.slice(-3);
+            if (period === "custom") {
+              return recs.filter((r) => {
+                if (dateFrom && r.date < dateFrom) return false;
+                if (dateTo && r.date > dateTo) return false;
+                return true;
+              });
+            }
             if (period === "all") return recs;
             const now = new Date();
-            const months = { "1m": 1, "3m": 3, "6m": 6, "1y": 12 }[period] || 0;
+            const months = { "1y": 12, "2y": 24, "3y": 36 }[period] || 0;
             const cutoff = new Date(now.getFullYear(), now.getMonth() - months, now.getDate());
             const cutoffKey = toKey(cutoff);
             return recs.filter((r) => r.date >= cutoffKey);
           };
           const periodRecords = filterByPeriod(records, chartPeriod);
-          const periods = [{ id: "1m", label: "1개월" }, { id: "3m", label: "3개월" }, { id: "6m", label: "6개월" }, { id: "1y", label: "1년" }, { id: "all", label: "전체" }];
+          const periods = [{ id: "default", label: "기본" }, { id: "1y", label: "1년" }, { id: "2y", label: "2년" }, { id: "3y", label: "3년" }, { id: "all", label: "전체" }, { id: "custom", label: "직접 설정" }];
           return (
             <div style={S.tblDetail}>
-              <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
+              {/* Next release info */}
+              {nextInfo?.date && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", background: C.accentDim, borderRadius: 4, fontSize: 11 }}>
+                  <span style={{ color: C.accent, fontWeight: 600 }}>다음 발표</span>
+                  <span style={{ fontFamily: C.mono, color: C.text }}>{nextInfo.date}</span>
+                  {nextInfo.forecast != null && <span style={{ color: "#7C3AED", fontWeight: 600, fontFamily: C.mono }}>예측: {nextInfo.forecast}</span>}
+                  <span style={{ color: C.textDim, fontSize: 10 }}>
+                    (D{(() => { const d = Math.ceil((new Date(nextInfo.date) - new Date()) / 86400000); return d <= 0 ? "-day" : `-${d}`; })()})
+                  </span>
+                </div>
+              )}
+              {/* Period filter */}
+              <div style={{ display: "flex", gap: 3, marginBottom: 4, flexWrap: "wrap", alignItems: "center" }}>
                 {periods.map((p) => (
                   <button key={p.id} onClick={() => setChartPeriod(p.id)} style={{ ...S.addChip, ...(chartPeriod === p.id ? { background: C.accent, color: "#fff", borderColor: C.accent } : {}), padding: "3px 8px", fontSize: 10 }}>{p.label}</button>
                 ))}
               </div>
+              {/* Custom date range picker */}
+              {chartPeriod === "custom" && (
+                <div style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center", fontSize: 10 }}>
+                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...S.indexInput, maxWidth: 120, fontSize: 10, padding: "3px 4px" }} />
+                  <span style={{ color: C.textDim }}>~</span>
+                  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...S.indexInput, maxWidth: 120, fontSize: 10, padding: "3px 4px" }} />
+                  <span style={{ color: C.textDim, fontSize: 9 }}>({periodRecords.length}건)</span>
+                </div>
+              )}
+              {chartPeriod === "default" && <p style={{ fontSize: 9, color: C.textDim, margin: "0 0 4px" }}>최근 3회 발표 데이터</p>}
+              {/* Large chart */}
               {periodRecords.length >= 2 && <MiniChart data={periodRecords} color={color} width={Math.min(500, 460)} height={70} />}
               {periodRecords.length < 2 && <p style={{ fontSize: 11, color: C.textDim, padding: "8px 0" }}>이 기간에 데이터가 부족합니다 (2개 이상 필요)</p>}
-              <div style={{ maxHeight: 140, overflow: "auto", marginTop: 6 }}>
+              {/* Legend */}
+              <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 9, color: C.textDim }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.up, display: "inline-block" }} />컨센서스 상회</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.down, display: "inline-block" }} />컨센서스 하회</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" }} />부합/예측없음</span>
+              </div>
+              {/* History table: date | actual | forecast | previous | surprise */}
+              <div style={{ marginTop: 8, fontSize: 10, color: C.textDim }}>
+                <div style={{ display: "flex", gap: 4, padding: "4px 0", borderBottom: `1px solid ${C.border}`, fontWeight: 600 }}>
+                  <span style={{ width: 70 }}>발표일</span>
+                  <span style={{ width: 55, textAlign: "right", color: C.text }}>실제</span>
+                  <span style={{ width: 55, textAlign: "right", color: "#7C3AED" }}>예측</span>
+                  <span style={{ width: 55, textAlign: "right", color: C.textDim }}>이전</span>
+                  <span style={{ flex: 1, textAlign: "right" }}>서프라이즈</span>
+                  <span style={{ width: 20 }} />
+                </div>
+              </div>
+              <div style={{ maxHeight: 200, overflow: "auto" }}>
                 {[...periodRecords].reverse().map((r) => {
                   const isEditingThis = editingRecord && editingRecord.id === item.id && editingRecord.date === r.date;
+                  const sColor = r.surprise === "positive" ? C.up : r.surprise === "negative" ? C.down : C.textDim;
+                  const sBg = r.surprise === "positive" ? C.upBg : r.surprise === "negative" ? C.downBg : "transparent";
+                  const sText = r.surprise === "positive" ? "▲ 상회" : r.surprise === "negative" ? "▼ 하회" : "— 부합";
                   return (
-                    <div key={r.date} style={S.tblHistRow}>
-                      <span style={{ color: C.textDim, fontFamily: C.mono, fontSize: 11 }}>{r.date}</span>
+                    <div key={r.date} style={{ ...S.tblHistRow, fontSize: 10, background: sBg }}>
+                      <span style={{ color: C.textDim, fontFamily: C.mono, width: 70 }}>{r.date.slice(2)}</span>
                       {isEditingThis ? (
                         <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          <input style={{ ...S.indexInput, maxWidth: 70, fontSize: 11, padding: "3px 6px" }} value={editRecordVal} onChange={(e) => setEditRecordVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") updateRecord(item.id, r.date, editRecordVal); if (e.key === "Escape") setEditingRecord(null); }} autoFocus />
-                          <button style={{ ...S.addChip, background: C.accent, color: "#fff", borderColor: C.accent, padding: "2px 6px", fontSize: 10 }} onClick={() => updateRecord(item.id, r.date, editRecordVal)}>확인</button>
-                          <button style={{ ...S.addChip, padding: "2px 6px", fontSize: 10 }} onClick={() => setEditingRecord(null)}>취소</button>
+                          <input style={{ ...S.indexInput, maxWidth: 60, fontSize: 10, padding: "2px 4px" }} value={editRecordVal} onChange={(e) => setEditRecordVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") updateRecord(item.id, r.date, editRecordVal); if (e.key === "Escape") setEditingRecord(null); }} autoFocus />
+                          <button style={{ ...S.addChip, background: C.accent, color: "#fff", borderColor: C.accent, padding: "1px 5px", fontSize: 9 }} onClick={() => updateRecord(item.id, r.date, editRecordVal)}>✓</button>
                         </span>
                       ) : (
-                        <span style={{ fontWeight: 600, fontFamily: C.mono, fontSize: 11, cursor: "pointer", borderBottom: `1px dashed ${C.border}` }} onClick={() => { setEditingRecord({ id: item.id, date: r.date }); setEditRecordVal(r.value); }}>{r.value}{item.unit}</span>
+                        <>
+                          <span style={{ fontWeight: 700, fontFamily: C.mono, width: 55, textAlign: "right", cursor: "pointer", color: sColor }} onClick={() => { setEditingRecord({ id: item.id, date: r.date }); setEditRecordVal(r.value); }}>{fmtNum(r.value)}</span>
+                          <span style={{ fontFamily: C.mono, width: 55, textAlign: "right", color: "#7C3AED", fontWeight: 500 }}>{r.forecast != null ? fmtNum(r.forecast) : "—"}</span>
+                          <span style={{ fontFamily: C.mono, width: 55, textAlign: "right", color: C.textDim, opacity: 0.65 }}>{r.previous != null ? fmtNum(r.previous) : "—"}</span>
+                          <span style={{ flex: 1, textAlign: "right", fontWeight: 700, color: sColor, fontSize: 9, letterSpacing: 0.3 }}>{r.forecast != null ? sText : ""}</span>
+                          <button style={{ ...S.tblBtn, opacity: 0.3, width: 20 }} onClick={() => deleteRecord(item.id, r.date)}>{Icons.trash}</button>
+                        </>
                       )}
-                      <span style={{ flex: 1 }} />
-                      {!isEditingThis && <button style={{ ...S.tblBtn, opacity: 0.4 }} onClick={() => deleteRecord(item.id, r.date)}>{Icons.trash}</button>}
                     </div>
                   );
                 })}
@@ -2246,21 +2269,55 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
 
   return (
     <div style={{ padding: "12px 0" }}>
-      {/* Auto sync button */}
-      {(Object.keys(fredData).length > 0 || Object.keys(ecosData).length > 0) && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 12, marginBottom: 10,  }}>
-          <button style={{ ...S.scrapAddBtn, background: syncLoading ? "#888" : "#16A34A", marginBottom: 6 }} onClick={syncAutoData} disabled={syncLoading}>
-            {Icons.activity} {syncLoading ? "동기화 중..." : "경제 지표 자동 입력 (FRED + ECOS)"}
-          </button>
-          <p style={{ fontSize: 8, color: C.textDim, margin: 0, textAlign: "center" }}>
-            {autoData?.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 수집" : ""} | 최신 데이터로 업데이트 (기존 값 덮어쓰기)
-          </p>
+      {/* 수집 시간 + 색 구분 안내 */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+          <span style={{ fontSize: 9, color: C.textDim }}>
+            Investing.com 자동 수집{autoData?.fetched_at ? ` · ${new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}
+            {syncLoading && " · 동기화 중..."}
+          </span>
+          <div style={{ display: "flex", gap: 8, fontSize: 9, color: C.textDim, alignItems: "center" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 3, opacity: 0.6 }}>이전</span>
+            <span style={{ fontSize: 8, color: C.borderLight }}>›</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 3, color: "#7C3AED", fontWeight: 600 }}>예측</span>
+            <span style={{ fontSize: 8, color: C.borderLight }}>›</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 3, fontWeight: 700 }}>실제</span>
+          </div>
         </div>
-      )}
-      <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 9, color: C.textDim }}>
-        <span>자동 수집 = FRED/ECOS에서 가져오는 지표</span>
-        <span style={{ color: "#F59E0B", display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 6, height: 6, background: "#F59E0B", borderRadius: 1, display: "inline-block" }} />수동 = 직접 입력 필요</span>
+        <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 9, color: C.textDim }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.up, display: "inline-block" }} />컨센서스 상회 (실제 > 예측)</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.down, display: "inline-block" }} />컨센서스 하회 (실제 < 예측)</span>
+        </div>
       </div>
+
+      {/* 다음 발표 예정 카드 — 즐겨찾기 지표 기준 */}
+      {(() => {
+        const upcomingItems = ALL_ITEMS
+          .filter(item => pins.includes(item.id) && indicators[`_next_${item.id}`]?.date)
+          .map(item => ({ ...item, next: indicators[`_next_${item.id}`] }))
+          .sort((a, b) => (a.next.date || "").localeCompare(b.next.date || ""))
+          .slice(0, 4);
+        if (upcomingItems.length === 0) return null;
+        return (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing: 0.3, marginBottom: 6 }}>다음 발표 예정</div>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(upcomingItems.length, 4)}, 1fr)`, gap: 6 }}>
+              {upcomingItems.map(item => {
+                const dDay = Math.ceil((new Date(item.next.date) - new Date()) / 86400000);
+                const cMeta = COUNTRY_META.find(c => c.id === item.country);
+                return (
+                  <div key={item.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: C.textDim }}>{cMeta?.flag} {item.name}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, fontFamily: C.mono, color: dDay <= 3 ? C.down : C.text, margin: "2px 0" }}>D{dDay <= 0 ? "-day" : `-${dDay}`}</div>
+                    <div style={{ fontSize: 9, color: C.textMid, fontFamily: C.mono }}>{item.next.date?.slice(5)}</div>
+                    {item.next.forecast != null && <div style={{ fontSize: 8, color: "#7C3AED", fontWeight: 600, marginTop: 2 }}>예측: {item.next.forecast}{item.unit}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
         <button style={{ ...S.viewToggleBtn, ...(viewBy === "cat" ? S.viewToggleBtnActive : {}) }} onClick={() => { setViewBy("cat"); setFilterCat("all"); }}>
@@ -2320,6 +2377,30 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
           )}
         </div>
       ))}
+
+      {/* 지표 갱신 버튼 — 맨 밑, 운영자만 */}
+      {userEmail === "younjino8755@gmail.com" && (
+        <div style={{ marginTop: 30, padding: "16px 12px", background: C.card, border: `1px dashed ${C.border}`, borderRadius: 8, textAlign: "center" }}>
+          <p style={{ fontSize: 9, color: C.textDim, margin: "0 0 8px" }}>운영자 전용 — Investing.com에서 경제 지표 데이터를 수집합니다</p>
+          <button style={{ ...S.scrapAddBtn, background: "#E8590C", fontSize: 12, padding: "8px 20px" }} onClick={async () => {
+            showToast("경제 지표 수집 중... (최대 1분 소요)");
+            try {
+              const res = await fetch("/api/fetch-data?mode=indicators");
+              const data = await res.json();
+              if (data.success) {
+                if (window.getLatestAutoData) {
+                  const ad = await window.getLatestAutoData();
+                  if (ad) { setAutoData(ad); setAutoSynced(false); }
+                }
+                showToast(`지표 업데이트 완료! (${data.counts?.indicators_fetched || 0}/${data.counts?.indicators_total || 0}개 수집${data.isFirstRun ? " — 첫 수집" : ""})`);
+              } else { showToast("오류: " + (data.error || "실패")); }
+            } catch (e) { showToast("네트워크 오류"); }
+          }}>
+            {Icons.activity} 지표 갱신 (Investing.com 수집)
+          </button>
+          <p style={{ fontSize: 8, color: C.textDim, margin: "6px 0 0" }}>첫 수집 시 28개 지표 3년치 · 이후 cron 자동 수집 (매일 2회)</p>
+        </div>
+      )}
     </div>
   );
 }
