@@ -1628,7 +1628,7 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
         <p style={H.section}>주요 경제 일정</p>
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
           <iframe
-            src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&importance=2,3&countries=5,72,17,25,32&calType=week&timeZone=88&lang=12"
+            src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&importance=3&countries=5,72,17,25,32&calType=week&timeZone=88&lang=12"
             width="100%"
             height="400"
             frameBorder="0"
@@ -1637,7 +1637,7 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
           />
         </div>
         <p style={{ fontSize: 7, color: C.textDim, margin: "4px 0 0", textAlign: "center" }}>
-          Powered by Investing.com · 중요도 ★★~★★★ · 미국/한국/일본/유로/중국
+          Powered by Investing.com · 중요도 ★★★ · 미국/한국/일본/유로/중국
         </p>
       </div>
 
