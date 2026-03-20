@@ -44,8 +44,8 @@ const CATEGORIES = [
 const BOND_ITEMS = [
   { id: "us10y", name: "미국 10년물", flag: "\u{1f1fa}\u{1f1f8}", url: "https://kr.investing.com/rates-bonds/u.s.-10-year-bond-yield", auto: true },
   { id: "us2y", name: "미국 2년물", flag: "\u{1f1fa}\u{1f1f8}", url: "https://kr.investing.com/rates-bonds/u.s.-2-year-bond-yield", auto: true },
-  { id: "kr10y", name: "한국 10년물", flag: "\u{1f1f0}\u{1f1f7}", url: "https://kr.investing.com/rates-bonds/south-korea-10-year-bond-yield", auto: false },
-  { id: "kr3y", name: "한국 3년물", flag: "\u{1f1f0}\u{1f1f7}", url: "https://kr.investing.com/rates-bonds/south-korea-3-year-bond-yield", auto: false },
+  { id: "kr10y", name: "한국 10년물", flag: "\u{1f1f0}\u{1f1f7}", url: "https://kr.investing.com/rates-bonds/south-korea-10-year-bond-yield", auto: true },
+  { id: "kr3y", name: "한국 3년물", flag: "\u{1f1f0}\u{1f1f7}", url: "https://kr.investing.com/rates-bonds/south-korea-3-year-bond-yield", auto: true },
 ];
 
 const COMMODITY_ITEMS = [
@@ -1498,8 +1498,8 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
           { label: "채권", color: "#6554C0", items: [
             { id: "us10y", label: "미국10Y", url: "https://kr.investing.com/rates-bonds/u.s.-10-year-bond-yield" },
             { id: "us2y", label: "미국2Y", url: "https://kr.investing.com/rates-bonds/u.s.-2-year-bond-yield" },
-            { id: "kr10y", label: "한국10Y", url: "https://kr.investing.com/rates-bonds/south-korea-10-year-bond-yield", manual: true },
-            { id: "kr3y", label: "한국3Y", url: "https://kr.investing.com/rates-bonds/south-korea-3-year-bond-yield", manual: true },
+            { id: "kr10y", label: "한국10Y", url: "https://kr.investing.com/rates-bonds/south-korea-10-year-bond-yield" },
+            { id: "kr3y", label: "한국3Y", url: "https://kr.investing.com/rates-bonds/south-korea-3-year-bond-yield" },
           ]},
           { label: "원자재·가상화폐", color: "#FF5630", items: [
             { id: "gold", label: "금", url: "https://kr.investing.com/commodities/gold" },
@@ -1623,91 +1623,23 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
         );
       })()}
 
-      {/* Economic Calendar */}
-      {(() => {
-        const now = new Date();
-        const rd = autoData?.release_dates || {};
-
-        const calendarEvents = [
-          { name: "미국 ISM 제조업 PMI", id: "us_ism", freq: "매월 첫째 영업일", country: "us", important: true, getNext: (d) => { const n = new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 3 ? 1 : 0), 1); while(n.getDay()===0||n.getDay()===6) n.setDate(n.getDate()+1); return n; }},
-          { name: "미국 ADP 고용", tag: "MoM변동", id: "us_adp", freq: "매월 첫째 수요일", country: "us", important: true, getNext: (d) => { const n = new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 7 ? 1 : 0), 1); while(n.getDay()!==3) n.setDate(n.getDate()+1); return n; }},
-          { name: "미국 비농업고용 (NFP)", id: "us_nfp", freq: "매월 첫째 금요일", country: "us", important: true, getNext: (d) => { const n = new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 7 ? 1 : 0), 1); while(n.getDay()!==5) n.setDate(n.getDate()+1); return n; }},
-          { name: "미국 실업률", id: "us_unemp", freq: "매월 첫째 금요일 (NFP 동시)", country: "us", important: true, getNext: (d) => { const n = new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 7 ? 1 : 0), 1); while(n.getDay()!==5) n.setDate(n.getDate()+1); return n; }},
-          { name: "미국 CPI", id: "us_cpi", freq: "매월 10~13일", country: "us", important: true, getNext: (d) => { return new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 15 ? 1 : 0), 12); }},
-          { name: "미국 PPI", id: "us_ppi", freq: "매월 11~15일", country: "us", important: false, getNext: (d) => { return new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 16 ? 1 : 0), 13); }},
-          { name: "미국 소매판매", id: "us_retail", freq: "매월 14~16일", country: "us", important: true, getNext: (d) => { return new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 18 ? 1 : 0), 15); }},
-          { name: "미국 실업수당 청구", id: "us_claims", freq: "매주 목요일", country: "us", important: false, getNext: (d) => { const n = new Date(d); const diff = (4 - n.getDay() + 7) % 7 || 7; n.setDate(n.getDate() + diff); return n; }},
-          { name: "미국 PCE 물가", id: "us_pce", freq: "매월 마지막 주 금요일", country: "us", important: true, getNext: (d) => { const n = new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 28 ? 1 : 0) + 1, 0); while(n.getDay()!==5) n.setDate(n.getDate()-1); return n; }},
-          { name: "FOMC 금리 결정", id: "fomc", freq: "연 8회 (6주 간격)", country: "us", important: true, getNext: (d) => { const all = ["2025-01-29","2025-03-19","2025-05-07","2025-06-18","2025-07-30","2025-09-17","2025-11-05","2025-12-17","2026-01-28","2026-03-18","2026-05-06","2026-06-17","2026-07-29","2026-09-16","2026-11-04","2026-12-16"]; const today = toKey(d); const next = all.find(x => x >= today); return next ? new Date(next) : null; }},
-          { name: "한국은행 금리 결정", id: "kr_rate", freq: "연 8회", country: "kr", important: true, getNext: (d) => { const dates = ["2025-01-16","2025-02-27","2025-04-17","2025-05-29","2025-07-10","2025-08-21","2025-10-16","2025-11-27","2026-01-15","2026-02-26","2026-04-16","2026-05-28"]; const today = toKey(d); const next = dates.find(x => x >= today); return next ? new Date(next) : null; }},
-          { name: "한국 CPI", id: "kr_cpi", freq: "매월 초", country: "kr", important: false, getNext: (d) => { return new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 5 ? 1 : 0), 3); }},
-          { name: "중국 LPR 발표", id: "cn_lpr", freq: "매월 20일", country: "cn", important: false, getNext: (d) => { return new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 20 ? 1 : 0), 20); }},
-        ];
-
-        const upcoming = calendarEvents.map((evt) => {
-          const fredDate = rd[evt.id]?.date;
-          const isConfirmed = !!fredDate;
-          const nextDate = fredDate ? new Date(fredDate) : evt.getNext(now);
-          if (!nextDate) return null;
-          const diffDays = Math.ceil((nextDate - now) / 86400000);
-          const isToday = diffDays <= 0 && diffDays > -1;
-          const isTomorrow = diffDays === 1;
-          const isThisWeek = diffDays >= 0 && diffDays <= 6;
-          let when = "";
-          if (isToday) when = "오늘";
-          else if (isTomorrow) when = "내일";
-          else if (isThisWeek) when = ["일","월","화","수","목","금","토"][nextDate.getDay()] + "요일";
-          else when = `${nextDate.getMonth()+1}/${nextDate.getDate()}`;
-          return { ...evt, nextDate, diffDays, when, isToday, isTomorrow, isThisWeek, isConfirmed };
-        }).filter(Boolean).filter((e) => e.diffDays >= 0 && e.diffDays <= 14).sort((a, b) => a.diffDays - b.diffDays);
-
-        const flags = { us: "\uD83C\uDDFA\uD83C\uDDF8", kr: "\uD83C\uDDF0\uD83C\uDDF7", cn: "\uD83C\uDDE8\uD83C\uDDF3" };
-
-        if (upcoming.length === 0) return null;
-        return (
-          <div style={{ marginBottom: 14 }}>
-            <p style={H.section}>주요 경제 일정</p>
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
-              {upcoming.slice(0, 8).map((evt, i) => (
-                <div key={i} style={{ borderBottom: i < Math.min(upcoming.length, 8) - 1 ? `1px solid ${C.border}` : "none", borderLeft: evt.isConfirmed ? "3px solid #00875A" : "3px solid #F59E0B" }}>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", cursor: "pointer" }}
-                    onClick={() => setShowCalDetail(showCalDetail === i ? null : i)}
-                  >
-                    <span style={{ fontSize: 12 }}>{flags[evt.country] || ""}</span>
-                    <span style={{ flex: 1, fontSize: 12, fontWeight: evt.important ? 700 : 500, color: C.text, letterSpacing: -0.2, display: "flex", alignItems: "center", gap: 6 }}>
-                      {evt.name}
-                      <span style={{ fontSize: 8, fontWeight: 600, padding: "1px 5px", borderRadius: 3, flexShrink: 0, background: evt.isConfirmed ? "#16A34A15" : "#F59E0B15", color: evt.isConfirmed ? "#16A34A" : "#F59E0B" }}>{evt.isConfirmed ? "확정" : "예상"}</span>
-                    </span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, fontFamily: C.mono, padding: "2px 7px", borderRadius: 4,
-                      background: evt.isToday ? C.down + "12" : evt.isTomorrow ? "#F59E0B12" : evt.isThisWeek ? C.accentDim : C.bg,
-                      color: evt.isToday ? C.down : evt.isTomorrow ? "#F59E0B" : evt.isThisWeek ? C.accent : C.textDim,
-                    }}>{evt.when}</span>
-                    <span style={{ fontSize: 10, color: C.textDim }}>{showCalDetail === i ? "\u25B2" : "\u25BC"}</span>
-                  </div>
-                  {showCalDetail === i && (
-                    <div style={{ padding: "0 12px 10px 36px", fontSize: 11, color: C.textMid, lineHeight: 1.5 }}>
-                      <span style={{ display: "block" }}>발표 주기: {evt.freq}</span>
-                      <span style={{ display: "block" }}>{evt.isConfirmed ? "확정" : "예상"} 날짜: {evt.nextDate.getFullYear()}.{evt.nextDate.getMonth()+1}.{evt.nextDate.getDate()}</span>
-                      <div style={{ display: "flex", gap: 4, marginTop: 3 }}>
-                        {evt.important && <span style={{ fontSize: 9, fontWeight: 600, color: C.down, background: C.down + "10", padding: "1px 6px", borderRadius: 3 }}>주요 지표</span>}
-                        <span style={{ fontSize: 9, fontWeight: 600, color: evt.isConfirmed ? "#16A34A" : "#F59E0B", background: evt.isConfirmed ? "#16A34A10" : "#F59E0B10", padding: "1px 6px", borderRadius: 3 }}>
-                          {evt.isConfirmed ? "확정 일정" : "예상 일정 (실제와 다를 수 있음)"}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 5 }}>
-              <span style={{ fontSize: 8, color: "#16A34A", display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 3, background: "#16A34A", borderRadius: 1, display: "inline-block" }} />확정 일정 (FRED 기준)</span>
-              <span style={{ fontSize: 8, color: "#F59E0B", display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 3, background: "#F59E0B", borderRadius: 1, display: "inline-block" }} />예상 일정 (실제와 다를 수 있음)</span>
-            </div>
-          </div>
-        );
-      })()}
+      {/* Economic Calendar — investing.com widget */}
+      <div style={{ marginBottom: 14 }}>
+        <p style={H.section}>주요 경제 일정</p>
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
+          <iframe
+            src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&importance=2,3&countries=5,72,17,25,32&calType=week&timeZone=88&lang=12"
+            width="100%"
+            height="400"
+            frameBorder="0"
+            allowtransparency="true"
+            style={{ display: "block", border: "none" }}
+          />
+        </div>
+        <p style={{ fontSize: 7, color: C.textDim, margin: "4px 0 0", textAlign: "center" }}>
+          Powered by Investing.com · 중요도 ★★~★★★ · 미국/한국/일본/유로/중국
+        </p>
+      </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showNotes ? 8 : 0, cursor: "pointer" }} onClick={() => setShowNotes(!showNotes)}>
         <p style={{ ...H.section, margin: 0 }}>내 투자 노트</p>
