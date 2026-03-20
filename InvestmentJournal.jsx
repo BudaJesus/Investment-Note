@@ -3079,3 +3079,4 @@ const S = {
   tblHistRow: { display: "flex", alignItems: "center", gap: 8, padding: "3px 0", borderBottom: `1px solid ${C.border}` },
   indBtn: { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 4, color: C.textMid, padding: "4px 5px", cursor: "pointer", display: "flex", alignItems: "center" },
 };
+
