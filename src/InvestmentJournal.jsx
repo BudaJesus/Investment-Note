@@ -2285,8 +2285,8 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData, setAut
           </div>
         </div>
         <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 9, color: C.textDim }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.up, display: "inline-block" }} />컨센서스 상회 (실제 > 예측)</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.down, display: "inline-block" }} />컨센서스 하회 (실제 < 예측)</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.up, display: "inline-block" }} />{"컨센서스 상회 (실제 > 예측)"}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.down, display: "inline-block" }} />{"컨센서스 하회 (실제 < 예측)"}</span>
         </div>
       </div>
 
