@@ -44,8 +44,8 @@ const CATEGORIES = [
 const BOND_ITEMS = [
   { id: "us10y", name: "미국 10년물", flag: "\u{1f1fa}\u{1f1f8}", url: "https://kr.investing.com/rates-bonds/u.s.-10-year-bond-yield", auto: true },
   { id: "us2y", name: "미국 2년물", flag: "\u{1f1fa}\u{1f1f8}", url: "https://kr.investing.com/rates-bonds/u.s.-2-year-bond-yield", auto: true },
-  { id: "kr10y", name: "한국 10년물", flag: "\u{1f1f0}\u{1f1f7}", url: "https://kr.investing.com/rates-bonds/south-korea-10-year-bond-yield", auto: false },
-  { id: "kr3y", name: "한국 3년물", flag: "\u{1f1f0}\u{1f1f7}", url: "https://kr.investing.com/rates-bonds/south-korea-3-year-bond-yield", auto: false },
+  { id: "kr10y", name: "한국 10년물", flag: "\u{1f1f0}\u{1f1f7}", url: "https://kr.investing.com/rates-bonds/south-korea-10-year-bond-yield", auto: true },
+  { id: "kr3y", name: "한국 3년물", flag: "\u{1f1f0}\u{1f1f7}", url: "https://kr.investing.com/rates-bonds/south-korea-3-year-bond-yield", auto: true },
 ];
 
 const COMMODITY_ITEMS = [
@@ -73,8 +73,8 @@ const emptyEntry = () => ({
   commodityOutlook: "",
   bondOutlook: "",
   fxOutlook: "",
-  sectors: [{ id: "sec_" + Date.now(), name: "", change: "", reason: "", outlook: "" }],
-  stocks: [{ id: "stk_" + Date.now(), name: "", ticker: "", price: "", change: "", reason: "", outlook: "" }],
+  sectors: [{ id: Date.now(), name: "", change: "", reason: "", outlook: "" }],
+  stocks: [{ id: Date.now() + 1, name: "", ticker: "", price: "", change: "", reason: "", outlook: "" }],
   memo: "",
 });
 
@@ -269,9 +269,6 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
     return sizes;
   }, [entries, scraps, indicators, reports, routineLinks, customSectors, autoData]);
 
-  const [dirty, setDirty] = useState(false);
-  const autoSaveTimerRef = useRef(null);
-
   useEffect(() => {
     if (!loaded) return;
     const sizes = getStorageSize();
@@ -280,58 +277,6 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
     else if (totalMB > 300) setStorageAlert("warning");
     else setStorageAlert(null);
   }, [loaded, entries, scraps, indicators, reports]);
-
-  // 데이터 변경 감지 → dirty 플래그
-  const prevDataRef = useRef(null);
-  useEffect(() => {
-    if (!loaded) return;
-    const current = JSON.stringify({ entries, scraps, indicators, reports, routineLinks, customSectors });
-    if (prevDataRef.current === null) { prevDataRef.current = current; return; }
-    if (current !== prevDataRef.current) { setDirty(true); }
-  }, [entries, scraps, indicators, reports, routineLinks, customSectors, loaded]);
-
-  // 자동 저장 (5초 디바운스)
-  useEffect(() => {
-    if (!loaded || !dirty) return;
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await window.storage.set(STORAGE_KEY, JSON.stringify(entries));
-        await window.storage.set(SCRAP_KEY, JSON.stringify(scraps));
-        await window.storage.set(INDICATOR_KEY, JSON.stringify(indicators));
-        await window.storage.set(REPORT_KEY, JSON.stringify({ items: reports, customSectors }));
-        if (routineLinks.length > 0) await window.storage.set(LINKS_KEY, JSON.stringify(routineLinks));
-        setDirty(false);
-        prevDataRef.current = JSON.stringify({ entries, scraps, indicators, reports, routineLinks, customSectors });
-        setLastSaved(new Date());
-      } catch (e) { /* 자동저장 실패는 조용히 무시 — 수동 저장 시 표시 */ }
-    }, 5000);
-    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
-  }, [dirty, loaded, entries, scraps, indicators, reports, routineLinks, customSectors]);
-
-  // Ctrl+S / Cmd+S 단축키
-  useEffect(() => {
-    const handleKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        saveAll();
-      }
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [entries, scraps, indicators, reports, routineLinks, customSectors]);
-
-  // 페이지 전환 시 스크롤 맨 위로
-  useEffect(() => { window.scrollTo(0, 0); }, [page]);
-
-  // 브라우저 닫기/새로고침 시 미저장 경고
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (dirty) { e.preventDefault(); e.returnValue = ""; }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [dirty]);
 
   const showToast = (msg, dur = 1800) => { setToast(msg); setTimeout(() => setToast(null), dur); };
 
@@ -353,8 +298,6 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
       await window.storage.set(INDICATOR_KEY, JSON.stringify(indicators));
       await window.storage.set(REPORT_KEY, JSON.stringify({ items: reports, customSectors }));
       if (routineLinks.length > 0) await window.storage.set(LINKS_KEY, JSON.stringify(routineLinks));
-      setDirty(false);
-      prevDataRef.current = JSON.stringify({ entries, scraps, indicators, reports, routineLinks, customSectors });
       showToast("저장 완료");
       setLastSaved(new Date());
     } catch (e) { showToast("저장 실패 — 다시 시도해주세요", 2500); }
@@ -414,11 +357,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                     const ad = await window.getLatestAutoData();
                     if (ad) setAutoData(ad);
                   }
-                  const staleCount = data.staleIndicators ? Object.keys(data.staleIndicators).length : 0;
-                  const msg = staleCount > 0
-                    ? `수치 갱신 완료! (${staleCount}개 지표 데이터 지연 — 경제지표 페이지에서 확인)`
-                    : "수치 갱신 완료! 대시보드 새로고침 / 경제지표 자동입력을 눌러주세요.";
-                  showToast(msg, 3000);
+                  showToast("수치 갱신 완료! 대시보드 새로고침 / 경제지표 자동입력을 눌러주세요.");
                 } else { showToast("오류: " + (data.error || "실패")); }
               } catch (e) { showToast("네트워크 오류"); }
             }} title="데이터 수집 실행">수치 갱신</button>
@@ -439,7 +378,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
         </div>
       )}
 
-      {showDataMgr && <DataManager entries={entries} setEntries={setEntries} scraps={scraps} setScraps={setScraps} indicators={indicators} setIndicators={setIndicators} reports={reports} setReports={setReports} routineLinks={routineLinks} customSectors={customSectors} getStorageSize={getStorageSize} showToast={showToast} setAutoData={setAutoData} autoData={autoData} onClose={() => setShowDataMgr(false)} />}
+      {showDataMgr && <DataManager entries={entries} setEntries={setEntries} scraps={scraps} setScraps={setScraps} indicators={indicators} setIndicators={setIndicators} reports={reports} setReports={setReports} getStorageSize={getStorageSize} showToast={showToast} setAutoData={setAutoData} autoData={autoData} onClose={() => setShowDataMgr(false)} />}
 
       {/* Page Toggle */}
       <div style={S.pageToggleBar}>
@@ -501,10 +440,10 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
           ))}
         </nav>
         <main style={S.main}>
-          {activeTab === "market" && <MarketSection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} showToast={showToast} />}
-          {activeTab === "bond" && <BondSection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} showToast={showToast} />}
-          {activeTab === "fx" && <FxSection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} showToast={showToast} />}
-          {activeTab === "commodity" && <CommoditySection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} showToast={showToast} />}
+          {activeTab === "market" && <MarketSection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} />}
+          {activeTab === "bond" && <BondSection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} />}
+          {activeTab === "fx" && <FxSection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} />}
+          {activeTab === "commodity" && <CommoditySection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} />}
           {activeTab === "sector" && <SectorSection entry={currentEntry} updateEntry={updateEntry} />}
           {activeTab === "stock" && <StockSection entry={currentEntry} updateEntry={updateEntry} autoData={autoData} />}
           <div style={S.memoSection}>
@@ -512,8 +451,8 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
             <textarea style={S.memoArea} rows={3} placeholder="오늘 시장에 대한 총평, 내일 주시할 점 등..." value={currentEntry.memo || ""} onChange={(e) => updateEntry((prev) => ({ ...prev, memo: e.target.value }))} />
           </div>
           <div style={{ position: "sticky", bottom: 0, padding: "12px 0", background: `linear-gradient(transparent, ${C.bg} 20%)`, zIndex: 5 }}>
-            <button style={{ ...S.saveBtn, width: "100%", justifyContent: "center", padding: "12px 0", borderRadius: 6, fontSize: 13, opacity: saving ? 0.6 : 1, background: (lastSaved && (new Date() - lastSaved) < 3000) ? C.up : dirty ? "#F59E0B" : C.accent }} onClick={saveAll} disabled={saving}>
-              {Icons.save}<span>{saving ? "저장 중..." : (lastSaved && (new Date() - lastSaved) < 3000) ? "저장 완료 ✓" : dirty ? "미저장 변경사항 있음 — 저장하기" : "투자 일지 저장"}</span>
+            <button style={{ ...S.saveBtn, width: "100%", justifyContent: "center", padding: "12px 0", borderRadius: 6, fontSize: 13, opacity: saving ? 0.6 : 1, background: (lastSaved && (new Date() - lastSaved) < 3000) ? C.up : C.accent }} onClick={saveAll} disabled={saving}>
+              {Icons.save}<span>{saving ? "저장 중..." : (lastSaved && (new Date() - lastSaved) < 3000) ? "저장 완료 ✓" : "투자 일지 저장"}</span>
             </button>
           </div>
         </main>
@@ -529,7 +468,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
 
       {page === "reports" && <ReportArchivePage reports={reports} setReports={setReports} customSectors={customSectors} setCustomSectors={setCustomSectors} showToast={showToast} />}
 
-      <footer style={S.footer}><span>투자 노트</span><span style={S.footerDot} /><span>{dirty ? "미저장 변경사항 있음" : lastSaved ? `마지막 저장: ${lastSaved.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : "5초 후 자동 저장 · Ctrl+S 수동 저장"}</span></footer>
+      <footer style={S.footer}><span>투자 노트</span><span style={S.footerDot} /><span>저장 버튼으로 데이터 보관</span></footer>
     </div>
   );
 }
@@ -847,24 +786,19 @@ function MonthlyView({ entries, viewYear, viewMonth, setViewYear, setViewMonth, 
 }
 
 /* ═══ BOND SECTION ═══ */
-function BondSection({ entry, updateEntry, autoData, showToast }) {
+function BondSection({ entry, updateEntry, autoData }) {
   const upd = (id, f, v) => updateEntry((p) => ({ ...p, bonds: (p.bonds || BOND_ITEMS.map((b) => ({ id: b.id, yield: "", change: "", reason: "" }))).map((b) => b.id === id ? { ...b, [f]: v } : b) }));
   const bonds = entry.bonds || BOND_ITEMS.map((b) => ({ id: b.id, yield: "", change: "", reason: "" }));
   const yd = autoData?.yahoo_data || {};
   const autoFillBonds = () => {
-    let count = 0;
     updateEntry((p) => ({
       ...p,
       bonds: (p.bonds || BOND_ITEMS.map((b) => ({ id: b.id, yield: "", change: "", reason: "" }))).map((b) => {
         const d = yd[b.id];
         if (!d) return b;
-        const newYield = b.yield || d.price;
-        const newChg = b.change || d.change || "";
-        if (newYield !== b.yield || newChg !== b.change) count++;
-        return { ...b, yield: newYield, change: newChg };
+        return { ...b, yield: b.yield || d.price, change: b.change || d.change || "" };
       }),
     }));
-    setTimeout(() => showToast(count > 0 ? `${count}개 채권 금리 자동 입력됨` : "이미 모든 값이 입력되어 있습니다"), 100);
   };
   return (
     <div style={S.sectionWrap}>
@@ -901,24 +835,19 @@ function BondSection({ entry, updateEntry, autoData, showToast }) {
 }
 
 /* ═══ COMMODITY SECTION ═══ */
-function CommoditySection({ entry, updateEntry, autoData, showToast }) {
+function CommoditySection({ entry, updateEntry, autoData }) {
   const upd = (id, f, v) => updateEntry((p) => ({ ...p, commodities: (p.commodities || COMMODITY_ITEMS.map((c) => ({ id: c.id, price: "", change: "", reason: "" }))).map((c) => c.id === id ? { ...c, [f]: v } : c) }));
   const commodities = entry.commodities || COMMODITY_ITEMS.map((c) => ({ id: c.id, price: "", change: "", reason: "" }));
   const yd = autoData?.yahoo_data || {};
   const autoFillCommodities = () => {
-    let count = 0;
     updateEntry((p) => ({
       ...p,
       commodities: (p.commodities || COMMODITY_ITEMS.map((c) => ({ id: c.id, price: "", change: "", reason: "" }))).map((c) => {
         const d = yd[c.id];
         if (!d) return c;
-        const newPrice = c.price || d.price;
-        const newChg = c.change || d.change || "";
-        if (newPrice !== c.price || newChg !== c.change) count++;
-        return { ...c, price: newPrice, change: newChg };
+        return { ...c, price: c.price || d.price, change: c.change || d.change || "" };
       }),
     }));
-    setTimeout(() => showToast(count > 0 ? `${count}개 원자재/가상화폐 자동 입력됨` : "이미 모든 값이 입력되어 있습니다"), 100);
   };
 
   const grouped = {};
@@ -966,7 +895,7 @@ function CommoditySection({ entry, updateEntry, autoData, showToast }) {
 }
 
 /* ═══ MARKET ═══ */
-function MarketSection({ entry, updateEntry, autoData, showToast }) {
+function MarketSection({ entry, updateEntry, autoData }) {
   const [addingCustom, setAddingCustom] = useState(null);
   const [customName, setCustomName] = useState("");
 
@@ -986,19 +915,14 @@ function MarketSection({ entry, updateEntry, autoData, showToast }) {
 
   const autoFillAll = () => {
     if (!yahooData || Object.keys(yahooData).length === 0) return;
-    let count = 0;
     updateEntry((p) => ({
       ...p,
       markets: (p.markets || []).map((m) => {
         const yd = yahooData[m.id];
         if (!yd) return m;
-        const newVal = m.value || yd.price;
-        const newChg = m.change || yd.change || "";
-        if (newVal !== m.value || newChg !== m.change) count++;
-        return { ...m, value: newVal, change: newChg };
+        return { ...m, value: m.value || yd.price, change: m.change || yd.change || "" };
       }),
     }));
-    setTimeout(() => showToast(count > 0 ? `${count}개 지수 자동 입력됨` : "이미 모든 값이 입력되어 있습니다"), 100);
   };
 
   const addIndex = (country, id, label) => {
@@ -1140,12 +1064,6 @@ function StockSection({ entry, updateEntry, autoData }) {
   const upd = (id, f, v) => updateEntry((p) => ({ ...p, stocks: p.stocks.map((s) => s.id === id ? { ...s, [f]: v } : s) }));
 
   const searchTimerRef = useRef(null);
-
-  // 컴포넌트 언마운트 시 타이머 정리
-  useEffect(() => {
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
-  }, []);
-
   const searchStock = async (query, stockId) => {
     if (!query || query.length < 1) { setSearchResults([]); return; }
     setSearchingId(stockId);
@@ -1239,24 +1157,19 @@ function StockSection({ entry, updateEntry, autoData }) {
 }
 
 /* ═══ FX SECTION ═══ */
-function FxSection({ entry, updateEntry, autoData, showToast }) {
+function FxSection({ entry, updateEntry, autoData }) {
   const upd = (id, f, v) => updateEntry((p) => ({ ...p, fx: (p.fx || FX_ITEMS.map((f) => ({ id: f.id, rate: "", change: "" }))).map((x) => x.id === id ? { ...x, [f]: v } : x) }));
   const fxData = entry.fx || FX_ITEMS.map((f) => ({ id: f.id, rate: "", change: "" }));
   const yd = autoData?.yahoo_data || {};
   const autoFillFx = () => {
-    let count = 0;
     updateEntry((p) => ({
       ...p,
       fx: (p.fx || FX_ITEMS.map((f) => ({ id: f.id, rate: "", change: "" }))).map((x) => {
         const d = yd[x.id];
         if (!d) return x;
-        const newRate = x.rate || d.price;
-        const newChg = x.change || d.change || "";
-        if (newRate !== x.rate || newChg !== x.change) count++;
-        return { ...x, rate: newRate, change: newChg };
+        return { ...x, rate: x.rate || d.price, change: x.change || d.change || "" };
       }),
     }));
-    setTimeout(() => showToast(count > 0 ? `${count}개 환율 자동 입력됨` : "이미 모든 값이 입력되어 있습니다"), 100);
   };
   return (
     <div style={S.sectionWrap}>
@@ -1304,25 +1217,25 @@ function Top10Page({ autoData, showToast }) {
   const [loading, setLoading] = useState(false);
   const [lastFetched, setLastFetched] = useState(null);
 
-  const fetchMarketTop10 = async (marketId, skipLoadingState = false) => {
+  const fetchMarketTop10 = async (marketId) => {
     const market = TOP10_MARKETS.find((m) => m.id === marketId);
     if (!market) return;
-    if (!skipLoadingState) setLoading(true);
+    setLoading(true);
     try {
       const res = await fetch(`/api/yahoo-proxy?symbols=${market.symbols.join(",")}`);
-      if (!res.ok) { if (!skipLoadingState) setLoading(false); showToast("데이터를 가져올 수 없습니다"); return; }
+      if (!res.ok) { setLoading(false); showToast("데이터를 가져올 수 없습니다"); return; }
       const data = await res.json();
       const results = Object.entries(data).map(([symbol, d]) => ({ symbol, ...d }));
       results.sort((a, b) => (b.tradingValue || 0) - (a.tradingValue || 0));
       setStockData((prev) => ({ ...prev, [marketId]: results.slice(0, 10) }));
       setLastFetched(new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }));
     } catch (e) { showToast("네트워크 오류"); }
-    if (!skipLoadingState) setLoading(false);
+    setLoading(false);
   };
 
   const fetchAll = async () => {
     setLoading(true);
-    for (const m of TOP10_MARKETS) { await fetchMarketTop10(m.id, true); }
+    for (const m of TOP10_MARKETS) { await fetchMarketTop10(m.id); }
     setLoading(false);
     showToast("전체 시장 데이터 가져옴");
   };
@@ -1428,28 +1341,16 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
   const [showNotes, setShowNotes] = useState(false);
   const [showRoutine, setShowRoutine] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [manualBonds, setManualBonds] = useState({});
+  const [manualBonds, setManualBonds] = useState(() => {
+    try { const s = localStorage.getItem("manualBonds"); return s ? JSON.parse(s) : {}; } catch { return {}; }
+  });
   const [editingBondId, setEditingBondId] = useState(null);
   const [bondInput, setBondInput] = useState("");
-  const MANUAL_BONDS_KEY = "manual-bonds";
-
-  // 초기 로드
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await window.storage.get(MANUAL_BONDS_KEY);
-        if (r && r.value) setManualBonds(JSON.parse(r.value));
-      } catch (e) {
-        // fallback: localStorage에서 마이그레이션
-        try { const s = localStorage.getItem("manualBonds"); if (s) setManualBonds(JSON.parse(s)); } catch {}
-      }
-    })();
-  }, []);
 
   const saveManualBond = (id, val) => {
     const updated = { ...manualBonds, [id]: val };
     setManualBonds(updated);
-    try { window.storage.set(MANUAL_BONDS_KEY, JSON.stringify(updated)); } catch (e) {}
+    localStorage.setItem("manualBonds", JSON.stringify(updated));
     setEditingBondId(null);
     setBondInput("");
   };
@@ -1597,8 +1498,8 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
           { label: "채권", color: "#6554C0", items: [
             { id: "us10y", label: "미국10Y", url: "https://kr.investing.com/rates-bonds/u.s.-10-year-bond-yield" },
             { id: "us2y", label: "미국2Y", url: "https://kr.investing.com/rates-bonds/u.s.-2-year-bond-yield" },
-            { id: "kr10y", label: "한국10Y", url: "https://kr.investing.com/rates-bonds/south-korea-10-year-bond-yield", manual: true },
-            { id: "kr3y", label: "한국3Y", url: "https://kr.investing.com/rates-bonds/south-korea-3-year-bond-yield", manual: true },
+            { id: "kr10y", label: "한국10Y", url: "https://kr.investing.com/rates-bonds/south-korea-10-year-bond-yield" },
+            { id: "kr3y", label: "한국3Y", url: "https://kr.investing.com/rates-bonds/south-korea-3-year-bond-yield" },
           ]},
           { label: "원자재·가상화폐", color: "#FF5630", items: [
             { id: "gold", label: "금", url: "https://kr.investing.com/commodities/gold" },
@@ -1889,7 +1790,6 @@ function ScrapPage({ scraps, setScraps, showToast }) {
   };
 
   const deleteScrap = (id) => {
-    if (!window.confirm("이 스크랩을 삭제하시겠습니까?")) return;
     setScraps((prev) => prev.filter((s) => s.id !== id));
     showToast("스크랩 삭제됨");
   };
@@ -2097,34 +1997,7 @@ const INDICATOR_DEFS = [
 
 const CAT_COLORS = { "금리": "#3B6FF5", "물가/경기": "#E8590C", "고용": "#0E9F6E", "기타": "#9333EA" };
 
-const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi","kr_rate","kr_ppi","kr_unemp"]);
-// jp_rate: FRED 시리즈(IRSTCB01JPM156N) 2023년 12월 이후 업데이트 중단 → 수동 입력 전용
-
-// 지표별 예상 업데이트 주기 (일): 이 기간이 지나면 "outdated" 표시
-const INDICATOR_FREQ_DAYS = {
-  us_rate: 50, eu_rate: 50, jp_rate: 50, kr_rate: 50,
-  cn_lpr1y: 35, cn_lpr5y: 35, cn_rrr: 120,
-  us_cpi: 40, us_core_cpi: 40, us_pce: 40, us_core_pce: 40, us_ppi: 40,
-  kr_cpi: 40, kr_core_cpi: 40, jp_cpi: 40, eu_cpi: 40, kr_ppi: 40,
-  us_retail: 40, us_ism: 40,
-  us_nfp: 40, us_adp: 40, us_unemp: 40, us_jolts: 60,
-  us_claims: 10, oil_inv: 10,
-  kr_unemp: 40,
-  kr_gdp_qq: 100, kr_gdp_yy: 100, cn_gdp_yy: 100,
-};
-
-// 데이터 신선도 계산
-const getDataFreshness = (latestDate, indicatorId) => {
-  if (!latestDate) return { label: "데이터 없음", color: "#8B919E", level: "none" };
-  const now = new Date();
-  const latest = new Date(latestDate);
-  const diffDays = Math.floor((now - latest) / 86400000);
-  const expectedDays = INDICATOR_FREQ_DAYS[indicatorId] || 45;
-
-  if (diffDays <= expectedDays) return { label: "최신", color: "#16A34A", level: "fresh" };
-  if (diffDays <= expectedDays * 1.5) return { label: `${Math.floor(diffDays / 30)}개월 전`, color: "#F59E0B", level: "aging" };
-  return { label: `${Math.floor(diffDays / 30)}개월+ 지연`, color: "#DC2626", level: "stale" };
-};
+const AUTO_IDS = new Set(["us_rate","us_cpi","us_core_cpi","us_pce","us_core_pce","us_ppi","us_retail","us_unemp","us_nfp","us_claims","us_jolts","eu_rate","jp_rate","jp_cpi","eu_cpi","kr_cpi","kr_core_cpi"]);
 
 const COUNTRY_META = [
   { id: "us", flag: "\u{1f1fa}\u{1f1f8}", name: "미국", color: "#3B6FF5" },
@@ -2158,14 +2031,14 @@ function MiniChart({ data, color, width = 160, height = 48 }) {
   });
   const last = vals[vals.length - 1];
   const prev = vals[vals.length - 2];
-  const lineColor = last > prev ? "#16A34A" : last < prev ? "#DC2626" : color;
+  const trend = last > prev ? "up" : last < prev ? "down" : "flat";
   return (
     <svg width={width} height={height} style={{ display: "block" }}>
-      <polyline points={points.join(" ")} fill="none" stroke={lineColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={points.join(" ")} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       {vals.map((v, i) => {
         const x = pad + (i / (vals.length - 1)) * w;
         const y = pad + h - ((v - min) / range) * h;
-        return <circle key={i} cx={x} cy={y} r={i === vals.length - 1 ? 3 : 1.5} fill={i === vals.length - 1 ? lineColor : lineColor + "80"} />;
+        return <circle key={i} cx={x} cy={y} r={i === vals.length - 1 ? 3 : 1.5} fill={i === vals.length - 1 ? color : color + "80"} />;
       })}
     </svg>
   );
@@ -2197,8 +2070,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
   const syncAutoData = () => {
     setSyncLoading(true);
     let count = 0;
-    let preserved = 0;
-    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "us2y_yield", "jp_rate"]);
+    const skipKeys = new Set(["_ecos_errors", "kr_cpi_fred", "us2y_yield"]);
     const autoIds = new Set(AUTO_IDS);
 
     // 새 indicators를 직접 계산
@@ -2218,28 +2090,13 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
       if (next.oil_inv.length === 0) delete next.oil_inv;
     }
 
-    // 자동/수동 병합 헬퍼: API 데이터 + 기존의 더 새로운 수동 입력 보존
-    const mergeRecords = (existingRecords, newRecords) => {
-      const merged = [...newRecords];
-      const newDates = new Set(newRecords.map(r => r.date));
-      const latestNewDate = newRecords.length > 0 ? newRecords.reduce((a, b) => a.date > b.date ? a : b).date : "0000-00-00";
-      // 기존 기록 중 API 데이터보다 더 최신인 것은 보존 (수동 입력)
-      for (const r of (existingRecords || [])) {
-        if (!newDates.has(r.date) && r.date > latestNewDate) {
-          merged.push(r);
-          preserved++;
-        }
-      }
-      return merged.sort((a, b) => a.date.localeCompare(b.date));
-    };
-
     // FRED 데이터
     for (const [id, data] of Object.entries(fredData)) {
       if (skipKeys.has(id) || id.startsWith("_")) continue;
       const arr = Array.isArray(data) ? data : (data?.value ? [data] : []);
       const newRecords = arr.filter(item => item?.value).map(item => ({ date: item.date, value: item.value }));
       if (newRecords.length > 0 && autoIds.has(id)) {
-        next[id] = mergeRecords(next[id], newRecords);
+        next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
         count += newRecords.length;
       } else if (newRecords.length > 0) {
         const records = [...(next[id] || [])];
@@ -2272,7 +2129,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
         newRecords.push({ date: dateKey, value: item.value });
       }
       if (newRecords.length > 0 && autoIds.has(id)) {
-        next[id] = mergeRecords(next[id], newRecords);
+        next[id] = newRecords.sort((a, b) => a.date.localeCompare(b.date));
         count += newRecords.length;
       } else if (newRecords.length > 0) {
         const records = [...(next[id] || [])];
@@ -2292,10 +2149,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
 
     setTimeout(() => {
       setSyncLoading(false);
-      const msg = count > 0
-        ? `${count}개 지표 업데이트됨` + (preserved > 0 ? ` (수동 입력 ${preserved}건 보존)` : "")
-        : "새로운 데이터가 없습니다 (이미 최신)";
-      showToast(msg, 2500);
+      showToast(count > 0 ? `${count}개 지표 업데이트됨` : "새로운 데이터가 없습니다 (이미 최신)");
     }, 300);
   };
 
@@ -2361,8 +2215,6 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     }
   };
 
-  const releaseDates = autoData?.release_dates || {};
-
   const fmtNum = (v) => { const n = parseFloat(v); if (isNaN(n)) return v; return n.toLocaleString("en-US", { maximumFractionDigits: 2 }); };
 
   const renderRow = (item, color) => {
@@ -2374,8 +2226,6 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
     const isExpanded = expandedId === item.id;
     const isPinned = pins.includes(item.id);
     const isAuto = isAutoIndicator(item.id);
-    const freshness = getDataFreshness(latest?.date, item.id);
-    const nextRelease = releaseDates[item.id]?.date;
     let diffStr = null;
     if (latest && prev) {
       const diff = (parseFloat(latest.value) - parseFloat(prev.value)).toFixed(2);
@@ -2391,7 +2241,6 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
             {item.name}
             {item.tag && <span style={{ fontSize: 7, fontWeight: 600, color: C.accent, background: C.accentDim, padding: "1px 4px", borderRadius: 2, flexShrink: 0 }}>{item.tag}</span>}
             {!isAuto && <span style={{ fontSize: 7, fontWeight: 600, color: "#F59E0B", background: "#F59E0B15", padding: "1px 4px", borderRadius: 2, flexShrink: 0 }}>수동</span>}
-            {freshness.level === "stale" && <span style={{ fontSize: 7, fontWeight: 600, color: freshness.color, background: freshness.color + "12", padding: "1px 4px", borderRadius: 2, flexShrink: 0 }} title={`마지막 데이터: ${latest?.date || "없음"}`}>{freshness.label}</span>}
           </a>
           <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
             {third && <span style={{ fontSize: 9, color: C.textDim, fontFamily: C.mono, cursor: "help" }} title={third.date}>{fmtNum(third.value)}</span>}
@@ -2401,10 +2250,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
             <span style={{ ...S.tblVal, minWidth: "auto", cursor: latest ? "help" : "default" }} title={latest?.date || ""}>{latest ? fmtNum(latest.value) + item.unit : "—"}</span>
           </div>
           {diffStr ? <span style={{ ...S.tblDiff, color: diffStr.color }}>{diffStr.text}</span> : <span style={S.tblDiff}>—</span>}
-          <span style={{ ...S.tblDate, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
-            <span>{latest ? latest.date.slice(5) : ""}</span>
-            {nextRelease && <span style={{ fontSize: 7, color: "#16A34A", fontWeight: 600 }} title={`다음 발표: ${nextRelease}`}>→{nextRelease.slice(5)}</span>}
-          </span>
+          <span style={S.tblDate}>{latest ? latest.date.slice(5) : ""}</span>
           <div style={{ width: 64, flexShrink: 0 }}>{records.length >= 2 && <MiniChart data={records} color={color} width={64} height={24} />}</div>
           <button style={S.tblBtn} onClick={() => { setEditingId(isEditing ? null : item.id); setFormValue(""); setFormDate(toKey(new Date())); }} title="기록">{isEditing ? Icons.x : Icons.plus}</button>
           {records.length > 0 && <button style={S.tblBtn} onClick={() => { setExpandedId(isExpanded ? null : item.id); setChartPeriod("all"); }} title="상세">{Icons.barChart}</button>}
@@ -2475,32 +2321,13 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData }) {
             {Icons.activity} {syncLoading ? "동기화 중..." : "경제 지표 자동 입력 (FRED + ECOS)"}
           </button>
           <p style={{ fontSize: 8, color: C.textDim, margin: 0, textAlign: "center" }}>
-            {autoData?.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 수집" : ""} | 수동 입력한 최신값은 보존됩니다
+            {autoData?.fetched_at ? new Date(autoData.fetched_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 수집" : ""} | 최신 데이터로 업데이트 (기존 값 덮어쓰기)
           </p>
         </div>
       )}
-      {/* 지연 지표 요약 */}
-      {(() => {
-        const staleItems = ALL_ITEMS.filter(item => {
-          const records = indicators[item.id] || [];
-          if (records.length === 0) return false;
-          const f = getDataFreshness(records[records.length - 1]?.date, item.id);
-          return f.level === "stale";
-        });
-        if (staleItems.length === 0) return null;
-        return (
-          <div style={{ background: "#DC262608", border: "1px solid #DC262620", borderRadius: 6, padding: "8px 12px", marginBottom: 10, fontSize: 11 }}>
-            <span style={{ fontWeight: 600, color: "#DC2626" }}>⚠ 업데이트 지연 지표 ({staleItems.length}개): </span>
-            <span style={{ color: C.textMid }}>{staleItems.slice(0, 6).map(i => i.name).join(", ")}{staleItems.length > 6 ? ` 외 ${staleItems.length - 6}개` : ""}</span>
-            <span style={{ fontSize: 9, color: C.textDim, display: "block", marginTop: 2 }}>FRED/ECOS 발표 지연이거나 수동 입력이 필요한 지표입니다. 지표명 클릭 시 investing.com에서 최신값을 확인할 수 있습니다.</span>
-          </div>
-        );
-      })()}
-      <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 9, color: C.textDim, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 9, color: C.textDim }}>
         <span>자동 수집 = FRED/ECOS에서 가져오는 지표</span>
         <span style={{ color: "#F59E0B", display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 6, height: 6, background: "#F59E0B", borderRadius: 1, display: "inline-block" }} />수동 = 직접 입력 필요</span>
-        <span style={{ color: "#DC2626", display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 6, height: 6, background: "#DC2626", borderRadius: 1, display: "inline-block" }} />지연 = 예상 주기 초과</span>
-        <span style={{ color: "#16A34A", display: "flex", alignItems: "center", gap: 3 }}><span style={{ fontSize: 8 }}>→</span>다음 발표일 (FRED 확정)</span>
       </div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
@@ -2613,7 +2440,7 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
     setShowForm(true);
   };
 
-  const deleteReport = (id) => { if (!window.confirm("이 레포트를 삭제하시겠습니까?")) return; setReports((prev) => prev.filter((r) => r.id !== id)); showToast("삭제됨"); };
+  const deleteReport = (id) => { setReports((prev) => prev.filter((r) => r.id !== id)); showToast("삭제됨"); };
 
   const filtered = useMemo(() => {
     let list = reports;
@@ -2816,7 +2643,7 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
 }
 
 /* ═══ DATA MANAGER ═══ */
-function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIndicators, reports, setReports, routineLinks, customSectors, getStorageSize, showToast, setAutoData, autoData, onClose }) {
+function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIndicators, reports, setReports, getStorageSize, showToast, setAutoData, autoData, onClose }) {
   const [tab, setTab] = useState("overview");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -2925,7 +2752,7 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
   };
 
   const exportData = () => {
-    const data = { entries, scraps, indicators, reports, routineLinks: routineLinks || [], customSectors: customSectors || [], exportedAt: new Date().toISOString() };
+    const data = { entries, scraps, indicators, reports, exportedAt: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

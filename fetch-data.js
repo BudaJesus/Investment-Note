@@ -80,6 +80,52 @@ const ECOS_SERIES = {
   "kr_unemp_ecos": { table: "901Y027", item: "I11", freq: "M", yoy: false },
 };
 
+// ═══ ECOS — 한국 국채 수익률 (시장금리 일별: 817Y002) ═══
+// Yahoo Finance에 한국 국채 심볼이 없으므로 ECOS에서 직접 수집
+// 채권 수익률은 "2.85%" 같은 값 그 자체 → 지수/변화율 혼동 없음
+const ECOS_BONDS = {
+  "kr3y":  { table: "817Y002", item: "010200000" },  // 국고채(3년)
+  "kr10y": { table: "817Y002", item: "010210000" },  // 국고채(10년)
+};
+
+async function fetchKoreanBonds() {
+  const apiKey = process.env.ECOS_API_KEY;
+  if (!apiKey) return {};
+  const results = {};
+  const now = new Date();
+  const end = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const startD = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000); // 최근 14일 (주말/공휴일 대비)
+  const start = startD.toISOString().slice(0, 10).replace(/-/g, '');
+
+  for (const [id, info] of Object.entries(ECOS_BONDS)) {
+    try {
+      const url = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/10/${info.table}/D/${start}/${end}/${info.item}`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data?.RESULT?.CODE) continue; // ECOS error
+      const rows = data?.StatisticSearch?.row;
+      if (!rows || rows.length === 0) continue;
+      const sorted = [...rows].sort((a, b) => a.TIME.localeCompare(b.TIME));
+      const latest = sorted[sorted.length - 1];
+      const prev = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+      const value = parseFloat(latest.DATA_VALUE);
+      if (isNaN(value)) continue;
+      let change = null;
+      if (prev) {
+        const prevVal = parseFloat(prev.DATA_VALUE);
+        if (!isNaN(prevVal)) {
+          const diff = (value - prevVal).toFixed(2);
+          change = diff > 0 ? `+${diff}%p` : diff < 0 ? `${diff}%p` : null;
+        }
+      }
+      // yahoo_data와 동일한 형식 (price + change)
+      results[id] = { price: value.toFixed(3), change };
+    } catch (e) {}
+  }
+  return results;
+}
+
 async function fetchYahoo() {
   const results = {};
   const symbols = Object.entries(YAHOO_SYMBOLS);
@@ -231,9 +277,11 @@ export default async function handler(req, res) {
   try {
     const timestamp = new Date().toISOString();
     const dateKey = timestamp.slice(0, 10);
-    const [yahoo, fred, fredDates, ecos] = await Promise.all([
-      fetchYahoo(), fetchFred(), fetchFredReleaseDates(), fetchEcos(),
+    const [yahoo, krBonds, fred, fredDates, ecos] = await Promise.all([
+      fetchYahoo(), fetchKoreanBonds(), fetchFred(), fetchFredReleaseDates(), fetchEcos(),
     ]);
+    // 한국 국채 수익률: ECOS → yahoo_data에 합침 (us2y와 동일한 패턴)
+    Object.assign(yahoo, krBonds);
     // 미국 2년물: FRED에서 가져온 값을 yahoo 형식으로 변환하여 대시보드에서 읽을 수 있게
     if (fred.us2y_yield && fred.us2y_yield.length > 0) {
       const latest = fred.us2y_yield[0];
@@ -283,7 +331,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true, date: dateKey,
-      counts: { yahoo: Object.keys(yahoo).length, fred: Object.keys(fred).length, fredDates: Object.keys(fredDates).length, ecos: Object.keys(ecos).length },
+      counts: { yahoo: Object.keys(yahoo).length, krBonds: Object.keys(krBonds).length, fred: Object.keys(fred).length, fredDates: Object.keys(fredDates).length, ecos: Object.keys(ecos).length },
       ecosErrors: ecos._ecos_errors || null,
       staleIndicators: Object.keys(freshnessSummary).length > 0 ? freshnessSummary : null,
     });
