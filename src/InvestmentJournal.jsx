@@ -1602,31 +1602,18 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
       {/* Economic Calendar — investing.com widget */}
       <div style={{ marginBottom: 14 }}>
         <p style={H.section}>주요 경제 일정</p>
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
-          <div ref={(el) => {
-            if (el && !el.dataset.loaded) {
-              el.dataset.loaded = "1";
-              const script = document.createElement("script");
-              script.src = "https://s3.tradingview.com/external-embedding/embed-widget-events.js";
-              script.async = true;
-              script.textContent = JSON.stringify({
-                colorTheme: "dark",
-                isTransparent: true,
-                width: "100%",
-                height: "400",
-                locale: "ko_KR",
-                importanceFilter: "0,1",
-                countryFilter: "us,kr,jp,eu,cn"
-              });
-              const inner = document.createElement("div");
-              inner.className = "tradingview-widget-container__widget";
-              el.appendChild(inner);
-              el.appendChild(script);
-            }
-          }} className="tradingview-widget-container" />
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          <iframe
+            src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&importance=2,3&countries=5,11,37,72,35&calType=week&timeZone=88&lang=1"
+            width="100%"
+            height="400"
+            frameBorder="0"
+            allowtransparency="true"
+            style={{ display: "block", border: "none", minWidth: 600 }}
+          />
         </div>
         <p style={{ fontSize: 7, color: C.textDim, margin: "4px 0 0", textAlign: "center" }}>
-          Powered by TradingView · 중요도 ★★~★★★ · 미국/한국/일본/유로/중국
+          Powered by Investing.com · 중요도 ★★~★★★ · 미국/한국/일본/유로/중국
         </p>
       </div>
 
