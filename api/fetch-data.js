@@ -5,7 +5,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ═══ Yahoo Finance — 증시 + 채권 + 원자재 + 환율 ═══
+// ═══════════════════════════════════════════════════
+// Yahoo Finance — 증시 + 채권 + 원자재 + 환율
+// ═══════════════════════════════════════════════════
 const YAHOO_SYMBOLS = {
   "sp500": "^GSPC", "nasdaq": "^IXIC", "dow": "^DJI", "russell": "^RUT", "sox": "^SOX",
   "nikkei": "^N225", "topix": "^TOPX",
@@ -18,114 +20,57 @@ const YAHOO_SYMBOLS = {
   "usdkrw": "KRW=X", "usdjpy": "JPY=X", "dxy": "DX-Y.NYB",
 };
 
-// ═══ FRED — 미국/유럽/일본 지표 ═══
-// units: lin=원래값, pc1=전년동기비%, pch=전기대비%, chg=전기대비변동
-// ⚠️ 시리즈 선택 원칙:
-//   - 반드시 Monthly 또는 Daily 시리즈만 사용 (Annual/Quarterly 금지)
-//   - World Bank(FPCPITOTLZG...) 시리즈는 Annual → 사용 금지
-//   - OECD(IRSTCB01...) 시리즈는 업데이트 중단 가능 → 주의
-const FRED_SERIES = {
-  // ── 금리 ──
-  "us_rate":     { id: "DFEDTARU", units: "lin" },       // 연준 목표금리 상단 (Daily) ✅
-  "eu_rate":     { id: "ECBMRRFR", units: "lin" },       // ECB 기준금리 (Daily) ✅
-  // jp_rate: FRED에 신뢰할 수 있는 월간/일간 시리즈 없음 → ECOS 또는 수동
-  "us2y_yield":  { id: "DGS2", units: "lin" },           // 미국 2년물 금리 (Daily) ✅
-
-  // ── 물가: 미국 (Monthly index + pc1 = YoY%) ──
-  "us_cpi":      { id: "CPIAUCSL", units: "pc1" },       // CPI 전체 → YoY% ✅
-  "us_core_cpi": { id: "CPILFESL", units: "pc1" },       // 근원 CPI → YoY% ✅
-  "us_pce":      { id: "PCEPI", units: "pc1" },          // PCE → YoY% ✅
-  "us_core_pce": { id: "PCEPILFE", units: "pc1" },       // 근원 PCE → YoY% ✅
-  "us_ppi":      { id: "PPIFIS", units: "pc1" },         // PPI 최종수요 → YoY% ✅
-
-  // ── 물가: 일본/유로 (Monthly OECD index + pc1 = YoY%) ──
-  // 기존 FPCPITOTLZG 시리즈는 World Bank Annual → 폐기
-  "jp_cpi":      { id: "JPNCPIALLMINMEI", units: "pc1" },// 일본 CPI 전체 (OECD Monthly index) → YoY% ✅
-  "eu_cpi":      { id: "CP0000EZ19M086NEST", units: "pc1" }, // 유로존 HICP (Eurostat Monthly index) → YoY% ✅
-  // kr_cpi: FRED 한국 CPI는 World Bank Annual → ECOS에서 직접 가져옴
-
-  // ── 경기 ──
-  "us_retail":   { id: "RSAFS", units: "pch" },          // 소매판매 MoM% (Monthly) ✅
-
-  // ── 고용 ──
-  "us_unemp":    { id: "UNRATE", units: "lin" },         // 미국 실업률 % (Monthly) ✅
-  "us_nfp":      { id: "PAYEMS", units: "chg" },         // 비농업고용 변동 천명 (Monthly) ✅
-  "us_claims":   { id: "ICSA", units: "lin" },           // 실업수당 청구 건 (Weekly) ✅
-  "us_jolts":    { id: "JTSJOL", units: "lin" },         // JOLTS 구인건수 천건 (Monthly) ✅
-};
-
-// ISM PMI는 FRED에 신뢰할 수 있는 시리즈가 없음 → 수동 입력
-
-// FRED 발표일 조회용 Release ID
-const FRED_RELEASES = {
-  "us_cpi": 10, "us_core_cpi": 10, "us_ppi": 11,
-  "us_pce": 54, "us_core_pce": 54,
-  "us_nfp": 50, "us_unemp": 50,
-  "us_retail": 13, "us_claims": 176,
-  "us_jolts": 110,
-};
-
-// ═══ ECOS — 한국 지표 (FRED에 없거나 지연되는 것) ═══
-// FRED의 한국 데이터는 3~6개월 지연 → 한국은행 ECOS에서 직접 가져오기
-const ECOS_SERIES = {
-  // 근원물가 (식료품·에너지 제외 소비자물가지수)
-  "kr_core_cpi": { table: "901Y010", item: "QB", freq: "M", yoy: true },
-  // 한국 CPI 총지수 (FRED보다 빠름)
-  "kr_cpi_ecos": { table: "901Y009", item: "0", freq: "M", yoy: true },
-  // 한국 기준금리
-  "kr_rate_ecos": { table: "722Y001", item: "0101000", freq: "M", yoy: false },
-  // 한국 생산자물가지수 (총지수)
-  "kr_ppi_ecos": { table: "404Y014", item: "*AA", freq: "M", yoy: true },
-  // 한국 실업률 (경제활동인구조사)
-  "kr_unemp_ecos": { table: "901Y027", item: "I11", freq: "M", yoy: false },
-};
-
-// ═══ ECOS — 한국 국채 수익률 (시장금리 일별: 817Y002) ═══
-// Yahoo Finance에 한국 국채 심볼이 없으므로 ECOS에서 직접 수집
-// 채권 수익률은 "2.85%" 같은 값 그 자체 → 지수/변화율 혼동 없음
+// ═══════════════════════════════════════════════════
+// ECOS — 한국 국채 수익률 (Yahoo에 없으므로 유지)
+// ═══════════════════════════════════════════════════
 const ECOS_BONDS = {
-  "kr3y":  { table: "817Y002", item: "010200000" },  // 국고채(3년)
-  "kr10y": { table: "817Y002", item: "010210000" },  // 국고채(10년)
+  "kr3y":  { table: "817Y002", item: "010200000" },
+  "kr10y": { table: "817Y002", item: "010210000" },
 };
 
-async function fetchKoreanBonds() {
-  const apiKey = process.env.ECOS_API_KEY;
-  if (!apiKey) return {};
-  const results = {};
-  const now = new Date();
-  const end = now.toISOString().slice(0, 10).replace(/-/g, '');
-  const startD = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000); // 최근 14일 (주말/공휴일 대비)
-  const start = startD.toISOString().slice(0, 10).replace(/-/g, '');
+// ═══════════════════════════════════════════════════
+// Investing.com — 경제 지표 (FRED/ECOS 완전 대체)
+// URL에서 추출한 event_id 매핑
+// ═══════════════════════════════════════════════════
+const INVESTING_EVENTS = {
+  // ── 금리 ──
+  "us_rate":     { eventId: 168,  name: "미국 기준금리" },
+  "kr_rate":     { eventId: 473,  name: "한국 기준금리" },
+  "jp_rate":     { eventId: 165,  name: "일본 기준금리" },
+  "eu_rate":     { eventId: 164,  name: "유로 기준금리" },
+  "cn_lpr1y":    { eventId: 1967, name: "중국 LPR 1년" },
+  "cn_lpr5y":    { eventId: 2225, name: "중국 LPR 5년" },
+  "cn_rrr":      { eventId: 1084, name: "중국 예금지준율" },
+  // ── 물가/경기 ──
+  "us_cpi":      { eventId: 733,  name: "미국 CPI" },
+  "us_core_cpi": { eventId: 736,  name: "미국 근원CPI" },
+  "us_pce":      { eventId: 906,  name: "미국 PCE" },
+  "us_core_pce": { eventId: 905,  name: "미국 근원PCE" },
+  "us_ppi":      { eventId: 734,  name: "미국 PPI" },
+  "kr_cpi":      { eventId: 467,  name: "한국 CPI" },
+  "kr_core_cpi": { eventId: 467,  name: "한국 근원물가" },
+  "jp_cpi":      { eventId: 992,  name: "일본 CPI" },
+  "eu_cpi":      { eventId: 68,   name: "유로 CPI" },
+  "us_retail":   { eventId: 256,  name: "미국 소매판매" },
+  "us_ism":      { eventId: 173,  name: "미국 ISM PMI" },
+  "kr_ppi":      { eventId: 747,  name: "한국 PPI" },
+  // ── 고용 ──
+  "us_nfp":      { eventId: 227,  name: "미국 비농업고용" },
+  "us_adp":      { eventId: 1,    name: "미국 ADP 고용" },
+  "us_unemp":    { eventId: 300,  name: "미국 실업률" },
+  "us_claims":   { eventId: 294,  name: "실업수당 청구" },
+  "kr_unemp":    { eventId: 469,  name: "한국 실업률" },
+  "us_jolts":    { eventId: 1057, name: "JOLTS 구인건수" },
+  // ── 기타 ──
+  "oil_inv":     { eventId: 75,   name: "원유재고" },
+  "kr_gdp_qq":   { eventId: 471,  name: "한국 GDP QoQ" },
+  "kr_gdp_yy":   { eventId: 745,  name: "한국 GDP YoY" },
+  "cn_gdp_yy":   { eventId: 461,  name: "중국 GDP YoY" },
+};
 
-  for (const [id, info] of Object.entries(ECOS_BONDS)) {
-    try {
-      const url = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/10/${info.table}/D/${start}/${end}/${info.item}`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data?.RESULT?.CODE) continue; // ECOS error
-      const rows = data?.StatisticSearch?.row;
-      if (!rows || rows.length === 0) continue;
-      const sorted = [...rows].sort((a, b) => a.TIME.localeCompare(b.TIME));
-      const latest = sorted[sorted.length - 1];
-      const prev = sorted.length > 1 ? sorted[sorted.length - 2] : null;
-      const value = parseFloat(latest.DATA_VALUE);
-      if (isNaN(value)) continue;
-      let change = null;
-      if (prev) {
-        const prevVal = parseFloat(prev.DATA_VALUE);
-        if (!isNaN(prevVal)) {
-          const diff = (value - prevVal).toFixed(2);
-          change = diff > 0 ? `+${diff}%p` : diff < 0 ? `${diff}%p` : null;
-        }
-      }
-      // yahoo_data와 동일한 형식 (price + change)
-      results[id] = { price: value.toFixed(3), change };
-    } catch (e) {}
-  }
-  return results;
-}
-
+// ═══════════════════════════════════════════════════
+// Yahoo Finance 수집
+// ═══════════════════════════════════════════════════
 async function fetchYahoo() {
   const results = {};
   const symbols = Object.entries(YAHOO_SYMBOLS);
@@ -150,190 +95,251 @@ async function fetchYahoo() {
   return results;
 }
 
-async function fetchFred() {
-  const apiKey = process.env.FRED_API_KEY;
-  if (!apiKey) return {};
-  const results = {};
-  // 최근 2년 데이터만 조회 (오래된 데이터 방지)
-  const twoYearsAgo = new Date();
-  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-  const obsStart = twoYearsAgo.toISOString().slice(0, 10);
-
-  for (const [id, cfg] of Object.entries(FRED_SERIES)) {
-    try {
-      const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${cfg.id}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=10&units=${cfg.units}&observation_start=${obsStart}`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const obs = (data?.observations || []).filter(o => o.value !== ".").slice(0, 5);
-      if (obs.length > 0) {
-        results[id] = obs.map(o => ({
-          value: parseFloat(o.value).toFixed(2),
-          date: o.date
-        }));
-      }
-    } catch (e) {}
-  }
-  return results;
-}
-
-async function fetchFredReleaseDates() {
-  const apiKey = process.env.FRED_API_KEY;
-  if (!apiKey) return {};
-  const results = {};
-  const today = new Date().toISOString().slice(0, 10);
-  // 3개월 후까지 조회
-  const future = new Date();
-  future.setMonth(future.getMonth() + 3);
-  const futureStr = future.toISOString().slice(0, 10);
-  const fetched = {};
-  for (const [indId, relId] of Object.entries(FRED_RELEASES)) {
-    if (fetched[relId]) { results[indId] = fetched[relId]; continue; }
-    try {
-      const url = `https://api.stlouisfed.org/fred/release/dates?release_id=${relId}&api_key=${apiKey}&file_type=json&realtime_start=${today}&realtime_end=${futureStr}&include_release_dates_with_no_data=true&sort_order=asc&limit=3`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const dates = data?.release_dates || [];
-      if (dates.length > 0) {
-        fetched[relId] = { date: dates[0].date, source: "fred" };
-        results[indId] = fetched[relId];
-      }
-    } catch (e) {}
-  }
-  return results;
-}
-
-async function fetchEcos() {
+// ═══════════════════════════════════════════════════
+// 한국 국채 수익률 (ECOS)
+// ═══════════════════════════════════════════════════
+async function fetchKoreanBonds() {
   const apiKey = process.env.ECOS_API_KEY;
-  if (!apiKey) return { _error: "ECOS_API_KEY not set" };
+  if (!apiKey) return {};
+  const results = {};
+  const now = new Date();
+  const end = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const startD = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const start = startD.toISOString().slice(0, 10).replace(/-/g, '');
+
+  for (const [id, info] of Object.entries(ECOS_BONDS)) {
+    try {
+      const url = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/10/${info.table}/D/${start}/${end}/${info.item}`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data?.RESULT?.CODE) continue;
+      const rows = data?.StatisticSearch?.row;
+      if (!rows || rows.length === 0) continue;
+      const sorted = [...rows].sort((a, b) => a.TIME.localeCompare(b.TIME));
+      const latest = sorted[sorted.length - 1];
+      const prev = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+      const value = parseFloat(latest.DATA_VALUE);
+      if (isNaN(value)) continue;
+      let change = null;
+      if (prev) {
+        const prevVal = parseFloat(prev.DATA_VALUE);
+        if (!isNaN(prevVal)) {
+          const diff = (value - prevVal).toFixed(2);
+          change = diff > 0 ? `+${diff}%p` : diff < 0 ? `${diff}%p` : null;
+        }
+      }
+      results[id] = { price: value.toFixed(3), change };
+    } catch (e) {}
+  }
+  return results;
+}
+
+// ═══════════════════════════════════════════════════
+// Investing.com 경제 지표 수집
+// ═══════════════════════════════════════════════════
+
+async function fetchSingleIndicator(eventId, limit = 5) {
+  try {
+    const url = `https://endpoints.investing.com/pd-instruments/v1/calendars/economic/events/${eventId}/occurrences?domain_id=18&limit=${limit}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+      }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.occurrences || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function parseOccurrences(occurrences) {
+  if (!occurrences || occurrences.length === 0) return null;
+
+  // 다음 발표 예정 (actual이 없는 첫 번째 항목)
+  const upcoming = occurrences.find(o => o.actual === undefined || o.actual === null);
+  // 과거 발표 (actual이 있는 항목들)
+  const released = occurrences.filter(o => o.actual !== undefined && o.actual !== null);
+
+  const records = released.map(o => ({
+    date: o.occurrence_time?.slice(0, 10) || "",
+    time: o.occurrence_time || "",
+    actual: o.actual,
+    forecast: o.forecast ?? null,
+    previous: o.previous ?? null,
+    surprise: o.actual_to_forecast || "neutral",
+    period: o.reference_period || "",
+  }));
+
+  return {
+    unit: occurrences[0]?.unit || "",
+    next_date: upcoming?.occurrence_time?.slice(0, 10) || null,
+    next_time: upcoming?.occurrence_time || null,
+    next_forecast: upcoming?.forecast ?? null,
+    next_previous: upcoming?.previous ?? null,
+    records,
+  };
+}
+
+async function fetchInvestingData(existingData) {
   const results = {};
   const errors = [];
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const q = Math.ceil((now.getMonth() + 1) / 3);
+  const today = new Date().toISOString().slice(0, 10);
+  const dayOfWeek = new Date().getDay(); // 0=일요일
+  const isFullScan = dayOfWeek === 0; // 일요일 = 전체 지표 풀스캔
+  const isFirstRun = !existingData || Object.keys(existingData).length === 0;
 
-  for (const [id, info] of Object.entries(ECOS_SERIES)) {
-    try {
-      const freq = info.freq || 'M';
-      let startDate, endDate, limit;
-
-      if (freq === 'Q') {
-        startDate = `${y - 3}Q1`;
-        endDate = `${y}Q${q}`;
-        limit = 15;
+  // 수집 대상 결정
+  const toFetch = [];
+  for (const [id, config] of Object.entries(INVESTING_EVENTS)) {
+    if (isFirstRun) {
+      // 첫 수집: 3년치 (36개)
+      toFetch.push({ id, ...config, limit: 36 });
+    } else if (isFullScan) {
+      // 일요일 풀스캔: 최근 5개 (일정 변경 감지 + 안전장치)
+      toFetch.push({ id, ...config, limit: 5 });
+    } else {
+      // 스마트 스케줄링: 발표 예정일 도래한 지표만
+      const existing = existingData[id];
+      if (!existing?.next_date) {
+        toFetch.push({ id, ...config, limit: 5 });
       } else {
-        startDate = `${y - 2}${m}`;
-        endDate = `${y}${m}`;
-        limit = info.yoy ? 30 : 5;
-      }
-
-      const url = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/${limit}/${info.table}/${freq}/${startDate}/${endDate}/${info.item}`;
-      const res = await fetch(url);
-      if (!res.ok) { errors.push({ id, status: res.status }); continue; }
-      const data = await res.json();
-
-      // ECOS error response check
-      if (data?.RESULT?.CODE) {
-        errors.push({ id, code: data.RESULT.CODE, msg: data.RESULT.MESSAGE });
-        continue;
-      }
-
-      const rows = data?.StatisticSearch?.row;
-      if (!rows || rows.length === 0) { errors.push({ id, msg: "no rows" }); continue; }
-
-      if (info.yoy) {
-        const sorted = [...rows].sort((a, b) => a.TIME.localeCompare(b.TIME));
-        const yoyResults = [];
-        for (let i = 0; i < sorted.length; i++) {
-          const currTime = sorted[i].TIME;
-          const prevYear = parseInt(currTime.slice(0, 4)) - 1;
-          const prevTime = `${prevYear}${currTime.slice(4)}`;
-          const prevRow = sorted.find(r => r.TIME === prevTime);
-          if (prevRow) {
-            const curr = parseFloat(sorted[i].DATA_VALUE);
-            const prev = parseFloat(prevRow.DATA_VALUE);
-            if (curr && prev) {
-              yoyResults.push({ value: ((curr / prev - 1) * 100).toFixed(2), date: currTime });
-            }
-          }
+        const nextDate = new Date(existing.next_date);
+        const todayDate = new Date(today);
+        // 발표일이 오늘 이전이면 새 데이터가 있을 수 있음
+        if (nextDate <= todayDate) {
+          toFetch.push({ id, ...config, limit: 5 });
         }
-        if (yoyResults.length > 0) results[id] = yoyResults.slice(-5);
-        else errors.push({ id, msg: "yoy calc failed", rowCount: rows.length });
-      } else {
-        const sorted = [...rows].sort((a, b) => a.TIME.localeCompare(b.TIME));
-        results[id] = sorted.slice(-5).map(r => ({ value: r.DATA_VALUE, date: r.TIME }));
       }
-    } catch (e) {
-      errors.push({ id, error: e.message });
     }
   }
-  if (errors.length > 0) results._ecos_errors = errors;
-  return results;
+
+  // 순차적으로 수집 (rate limiting 방지, 200ms 간격)
+  for (let i = 0; i < toFetch.length; i++) {
+    const { id, eventId, limit } = toFetch[i];
+    const occurrences = await fetchSingleIndicator(eventId, limit);
+
+    if (occurrences) {
+      const parsed = parseOccurrences(occurrences);
+      if (parsed) {
+        // 기존 데이터와 병합
+        if (!isFirstRun && existingData?.[id]?.records) {
+          const existingRecords = existingData[id].records;
+          const newDates = new Set(parsed.records.map(r => r.date));
+          const merged = [
+            ...parsed.records,
+            ...existingRecords.filter(r => !newDates.has(r.date))
+          ];
+          merged.sort((a, b) => b.date.localeCompare(a.date));
+          parsed.records = merged.slice(0, 36); // 최대 36개 유지
+        }
+        results[id] = parsed;
+      }
+    } else {
+      errors.push({ id, eventId, msg: "fetch failed" });
+      // 실패 시 기존 데이터 유지
+      if (existingData?.[id]) results[id] = existingData[id];
+    }
+
+    // 요청 간 200ms 딜레이
+    if (i < toFetch.length - 1) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  // 수집 대상이 아닌 지표는 기존 데이터 그대로 유지
+  if (existingData) {
+    for (const id of Object.keys(INVESTING_EVENTS)) {
+      if (!results[id] && existingData[id]) {
+        results[id] = existingData[id];
+      }
+    }
+  }
+
+  return {
+    data: results,
+    errors,
+    fetchedCount: toFetch.length,
+    totalCount: Object.keys(INVESTING_EVENTS).length,
+    isFirstRun,
+    isFullScan,
+  };
 }
+
+// ═══════════════════════════════════════════════════
+// API Handler
+// ?mode=market → Yahoo + 채권만 (수치갱신 버튼)
+// ?mode=indicators → 경제지표만 (지표 업데이트 버튼)
+// (기본) → 전부 (cron용, 스마트 스케줄링)
+// ═══════════════════════════════════════════════════
 
 export default async function handler(req, res) {
   try {
+    const mode = req.query?.mode || "all";
     const timestamp = new Date().toISOString();
     const dateKey = timestamp.slice(0, 10);
-    const [yahoo, krBonds, fred, fredDates, ecos] = await Promise.all([
-      fetchYahoo(), fetchKoreanBonds(), fetchFred(), fetchFredReleaseDates(), fetchEcos(),
-    ]);
-    // 한국 국채 수익률: ECOS → yahoo_data에 합침 (us2y와 동일한 패턴)
-    Object.assign(yahoo, krBonds);
-    // 미국 2년물: FRED에서 가져온 값을 yahoo 형식으로 변환하여 대시보드에서 읽을 수 있게
-    if (fred.us2y_yield && fred.us2y_yield.length > 0) {
-      const latest = fred.us2y_yield[0];
-      const prev = fred.us2y_yield.length > 1 ? fred.us2y_yield[1] : null;
-      const chg = prev ? (parseFloat(latest.value) - parseFloat(prev.value)).toFixed(2) : null;
-      yahoo.us2y = { price: latest.value, change: chg ? (chg > 0 ? `+${chg}%` : `${chg}%`) : null };
-    }
-    // 실업수당 청구: FRED는 건수(205000) 반환 → 천건 단위(205)로 변환
-    if (fred.us_claims) {
-      fred.us_claims = fred.us_claims.map(o => ({ ...o, value: (parseFloat(o.value) / 1000).toFixed(0) }));
+
+    // 기존 auto_data 읽기 (데이터 병합 + 스마트 스케줄링용)
+    let existingRow = null;
+    try {
+      const { data } = await supabase
+        .from('auto_data')
+        .select('*')
+        .order('date_key', { ascending: false })
+        .limit(1)
+        .single();
+      existingRow = data;
+    } catch (e) {}
+
+    let yahoo = existingRow?.yahoo_data || {};
+    let investingResult = {
+      data: existingRow?.investing_data || {},
+      errors: [], fetchedCount: 0, totalCount: Object.keys(INVESTING_EVENTS).length,
+    };
+
+    // === 시장 데이터 수집 (Yahoo + 한국 국채) ===
+    if (mode === "all" || mode === "market") {
+      const [yahooData, krBonds] = await Promise.all([
+        fetchYahoo(),
+        fetchKoreanBonds(),
+      ]);
+      yahoo = yahooData;
+      Object.assign(yahoo, krBonds);
     }
 
-    // ═══ ECOS → 프론트엔드 ID 매핑 ═══
-    // ECOS 키를 프론트엔드가 기대하는 ID로 변환
-    const ecosMappings = {
-      "kr_cpi_ecos": "kr_cpi",
-      "kr_rate_ecos": "kr_rate",
-      "kr_ppi_ecos": "kr_ppi",
-      "kr_unemp_ecos": "kr_unemp",
-    };
-    for (const [ecosKey, frontendKey] of Object.entries(ecosMappings)) {
-      if (ecos[ecosKey]) {
-        ecos[frontendKey] = ecos[ecosKey];
-        delete ecos[ecosKey];
-      }
+    // === 경제 지표 수집 (Investing.com) ===
+    if (mode === "all" || mode === "indicators") {
+      investingResult = await fetchInvestingData(existingRow?.investing_data || null);
     }
-    // kr_cpi: ECOS가 유일한 소스 (FRED World Bank Annual 시리즈 폐기)
-    // jp_rate: FRED에 신뢰할 수 있는 시리즈 없음 → 수동 입력 전용
+
+    // === Supabase 저장 ===
     const { error } = await supabase
       .from('auto_data')
-      .upsert({ date_key: dateKey, yahoo_data: yahoo, fred_data: fred, ecos_data: ecos, release_dates: fredDates, fetched_at: timestamp }, { onConflict: 'date_key' });
+      .upsert({
+        date_key: dateKey,
+        yahoo_data: yahoo,
+        investing_data: investingResult.data,
+        fetched_at: timestamp,
+      }, { onConflict: 'date_key' });
+
     if (error) return res.status(500).json({ error: error.message });
 
-    // 신선도 요약 생성
-    const freshnessSummary = {};
-    const today = new Date();
-    const checkFreshness = (source, id, data) => {
-      if (!data || !Array.isArray(data) || data.length === 0) return;
-      const latestDate = data[0]?.date || data[data.length - 1]?.date;
-      if (!latestDate) return;
-      const diffDays = Math.floor((today - new Date(latestDate)) / 86400000);
-      if (diffDays > 60) freshnessSummary[id] = { source, latestDate, daysOld: diffDays, status: "stale" };
-      else if (diffDays > 30) freshnessSummary[id] = { source, latestDate, daysOld: diffDays, status: "aging" };
-    };
-    for (const [id, data] of Object.entries(fred)) { if (Array.isArray(data)) checkFreshness("fred", id, data); }
-    for (const [id, data] of Object.entries(ecos)) { if (Array.isArray(data)) checkFreshness("ecos", id, data); }
-
     return res.status(200).json({
-      success: true, date: dateKey,
-      counts: { yahoo: Object.keys(yahoo).length, krBonds: Object.keys(krBonds).length, fred: Object.keys(fred).length, fredDates: Object.keys(fredDates).length, ecos: Object.keys(ecos).length },
-      ecosErrors: ecos._ecos_errors || null,
-      staleIndicators: Object.keys(freshnessSummary).length > 0 ? freshnessSummary : null,
+      success: true,
+      mode,
+      date: dateKey,
+      counts: {
+        yahoo: Object.keys(yahoo).length,
+        indicators_fetched: investingResult.fetchedCount,
+        indicators_total: investingResult.totalCount,
+      },
+      isFirstRun: investingResult.isFirstRun || false,
+      isFullScan: investingResult.isFullScan || false,
+      investingErrors: investingResult.errors?.length > 0 ? investingResult.errors : null,
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });
