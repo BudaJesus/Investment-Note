@@ -28,22 +28,20 @@ export default async function handler(req, res) {
     const stocks = [...(mv.domestic_stocks || []), ...(mv.overseas_stocks || [])];
     if (stocks.length === 0) return res.status(400).json({ error: '포트폴리오에 편입된 종목이 없습니다.' });
 
-    // 2. 텔레그램 데이터 — 3일 메시지+기사, 14일 레포트
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    // raw_messages는 최신 1개만 (수백KB)
     const { data: recentDigests } = await supabase.from('telegram_digests')
       .select('raw_messages, article_bodies, date_key')
-      .gte('collected_at', threeDaysAgo.toISOString())
       .order('collected_at', { ascending: false })
-      .limit(3);
+      .limit(1);
 
-    const fourteenDaysAgo = new Date();
-    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+    // 레포트는 7일치 (report_texts만, 가벼움)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const { data: reportDigests } = await supabase.from('telegram_digests')
       .select('report_texts, date_key')
-      .gte('collected_at', fourteenDaysAgo.toISOString())
+      .gte('collected_at', sevenDaysAgo.toISOString())
       .order('collected_at', { ascending: true })
-      .limit(10);
+      .limit(5);
 
     const allMsgs = [];
     const seenMsgKeys = new Set();
@@ -114,13 +112,13 @@ JSON으로만 응답하세요.`;
 ${JSON.stringify(stocks, null, 1)}
 
 ## 텔레그램 메시지 (${allMsgs.length}개)
-${allMsgs.slice(-30).join('\n---\n').slice(0, 15000)}
+${allMsgs.slice(-20).join('\n---\n').slice(0, 10000)}
 
 ## 기사 (${articles.length}개)
-${articles.join('\n---\n').slice(0, 8000)}
+${articles.join('\n---\n').slice(0, 5000)}
 
 ## 레포트 (${reports.length}개)
-${reports.join('\n---\n').slice(0, 8000)}
+${reports.join('\n---\n').slice(0, 5000)}
 
 ---
 
