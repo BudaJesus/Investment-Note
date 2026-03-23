@@ -194,10 +194,10 @@ ${reportStr}
     try {
       const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
       if (s >= 0 && e > s) mv = JSON.parse(cleaned.slice(s, e + 1));
-      else return null;
-    } catch (e2) { return null; }
+      else return { __error: 'JSON에 객체 없음', raw: cleaned.slice(0, 300) };
+    } catch (e2) { return { __error: 'JSON 파싱 실패: ' + e2.message, raw: cleaned.slice(0, 300) }; }
   }
-  if (!mv) return null;
+  if (!mv) return { __error: 'Claude 응답이 비어있음', raw: cleaned.slice(0, 300) };
 
   // 구조 검증/교정
   if (typeof mv.macro !== 'object' || Array.isArray(mv.macro)) mv.macro = {};
@@ -227,7 +227,7 @@ export default async function handler(req, res) {
 
     const data = await gatherData();
     const marketView = await generateMarketView(data);
-    if (!marketView) return res.status(500).json({ error: 'Market view generation failed' });
+    if (!marketView || marketView.__error) return res.status(500).json({ error: 'Market view 생성 실패: ' + (marketView?.__error || '알 수 없음'), raw: marketView?.raw, digestCount: data.digests?.length });
 
     // 종목분석은 별도 API (generate-stock-analysis.js)에서 처리
     // 시장전망만 저장하고, 종목분석은 클라이언트에서 순차 호출
