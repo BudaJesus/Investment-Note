@@ -15,11 +15,14 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 4000) {
 
 export default async function handler(req, res) {
   try {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const { data: digests, error } = await supabase
       .from('telegram_digests')
       .select('*')
-      .order('collected_at', { ascending: false })
-      .limit(3);
+      .gte('collected_at', thirtyDaysAgo.toISOString())
+      .order("collected_at", { ascending: true })
+      .limit(20);
 
     if (error || !digests || digests.length === 0)
       return res.status(200).json({ success: true, reports: [], debug: 'No digests found' });
@@ -55,22 +58,20 @@ export default async function handler(req, res) {
       ...allMessages.slice(0, 50),
     ].filter(Boolean).join('\n---\n').slice(0, 50000);
 
-    const systemPrompt = `당신은 증권사 리서치 편집자입니다.
+    const systemPrompt = `당신은 증권사 리서치 편집자입니다. 레포트 텍스트와 텔레그램 메시지에서 증권사 리포트를 추출하여 정리합니다.
 
-텔레그램 채널 메시지에서 증권사 리포트/리서치 관련 내용을 모두 추출합니다.
+핵심 규칙:
+1. PDF 레포트는 이미 섹션별로 정리되어 있습니다. 이 구조를 그대로 활용하세요.
+2. 요약하지 마세요. 원본의 수치, 데이터, 투자의견, 목표가, 분석 내용을 최대한 그대로 가져오세요.
+3. summary 필드에는 핵심 논점 + 데이터 + 결론을 빠짐없이 넣으세요. 길어도 됩니다.
+4. 텔레그램 메시지에서 "목표가 상향", "투자의견 매수" 등이 있으면 그것도 별도 레포트 항목으로 만드세요.
+5. 최소 5개 이상 추출하세요.
 
-다음과 같은 메시지가 리포트입니다:
-- "삼성전자 목표가 25만원 → 28만원 상향" → 증권사 리서치 리포트
-- "[키움] 반도체 업종 비중확대" → 섹터 리포트
-- "메리츠증권: SK하이닉스 매수, TP 280,000원" → 종목 리포트
-- "오늘 나온 리포트 정리" → 리포트 모음
-- 종목명 + 실적 전망/목표가/투자의견이 포함된 메시지 → 리포트
-- PDF 파일 링크나 파일명이 포함된 메시지 → 리포트
-
-최소 5개 이상 추출하세요. 모든 메시지를 꼼꼼히 읽으세요.
+섹터 id: semi/battery/bio/auto/it/finance/energy/consumer/industrial/realestate/macro/other
+증권사 id: samsung/mirae/kb/nh/hana/shinhan/kiwoom/daishin/hanwha/meritz/im/other
 JSON 배열로만 응답하세요.`;
 
-    const userPrompt = `${content}\n\nJSON 배열:\n[\n  { "title": "리포트 제목/핵심 내용", "source": "증권사id(samsung/mirae/kb/nh/hana/shinhan/kiwoom/daishin/hanwha/meritz/im/other)", "sector": "섹터id(semi/battery/bio/auto/it/finance/energy/consumer/industrial/realestate/macro/other)", "summary": "3~5문장 핵심 요약 (목표가/투자의견/실적 수치 포함)", "stocks": "관련종목(쉼표구분)", "rating": 3, "date": "${new Date().toISOString().slice(0,10)}" }\n]`;
+    const userPrompt = `${content}\n\nJSON 배열:\n[\n  { "title": "리포트 제목", "source": "증권사id(samsung/mirae/kb/nh/hana/shinhan/kiwoom/daishin/hanwha/meritz/im/other)", "sector": "섹터id(semi/battery/bio/auto/it/finance/energy/consumer/industrial/realestate/macro/other)", "analyst": "애널리스트명", "summary": "핵심논점+데이터+투자의견+목표가+결론을 빠짐없이. 요약하지말고 정리. 10문장 이상 가능.", "stocks": "관련종목(쉼표구분)", "target_price": "목표가", "opinion": "매수/중립/매도", "rating": 3, "date": "${new Date().toISOString().slice(0,10)}" }\n]`;
 
     const result = await callClaude(systemPrompt, userPrompt, 4000);
     const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();

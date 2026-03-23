@@ -6,9 +6,79 @@ const supabase = createClient(
 );
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
 // ═══════════════════════════════════════════════════
-// 텔레그램 정보 수집 — AI 없음, 원본 그대로 저장
+// Gemini Flash — PDF 원본 텍스트를 정리 (요약 아님!)
+// 중복/군더더기만 삭제, 핵심 데이터는 전부 유지
+// ═══════════════════════════════════════════════════
+async function organizeWithGemini(rawText, fileName) {
+  if (!GEMINI_KEY || rawText.length < 200) return rawText;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `아래는 증권사 리포트 "${fileName}"의 전체 텍스트입니다.
+
+## 작업: 정리 (요약 아님!)
+
+절대 규칙:
+1. 요약하지 마세요. 핵심 내용을 빠뜨리면 안 됩니다.
+2. 수치(가격, %, 금액, 날짜, 목표가, PER, 영업이익)는 하나도 빠뜨리지 말고 전부 포함하세요.
+3. 투자의견, 목표가, 애널리스트명, 증권사명은 반드시 포함하세요.
+4. 표/데이터가 있으면 구조를 유지하세요.
+5. 삭제해도 되는 것: 중복된 문장, 같은 말 반복, 법적 고지사항, 페이지 번호, 머리글/바닥글, 회사 주소/연락처, 준법감시 문구.
+6. 삭제하면 안 되는 것: 모든 수치, 모든 분석 내용, 모든 전망, 모든 데이터, 차트 설명.
+
+정리 형식:
+■ 레포트 기본정보
+증권사: / 애널리스트: / 발행일: / 투자의견: / 목표가:
+
+■ 핵심 논점
+(원본의 핵심 주장들을 빠짐없이, 수치 포함)
+
+■ 데이터/수치
+(원본에 있는 모든 수치, 표, 전망치를 구조화)
+
+■ 산업/시장 분석
+(원본의 산업/시장 관련 내용)
+
+■ 리스크
+(원본에 언급된 리스크 전부)
+
+■ 결론/전망
+(원본의 결론 부분)
+
+없는 섹션은 생략하세요. 섹션 내에서는 원본 표현을 최대한 살리세요.
+
+=== 레포트 원문 ===
+${rawText}` }] }],
+          generationConfig: { maxOutputTokens: 8000, temperature: 0.1 },
+        }),
+      }
+    );
+    if (!res.ok) return rawText.slice(0, 15000);
+    const data = await res.json();
+    const organized = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (organized && organized.length > 100) {
+      console.log(`Gemini organized: ${fileName} (${rawText.length} → ${organized.length} chars)`);
+      return organized;
+    }
+    return rawText.slice(0, 15000);
+  } catch (e) {
+    console.error('Gemini organize error:', e.message);
+    return rawText.slice(0, 15000); // fallback: 앞 15000자
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// 텔레그램 정보 수집
+// 메시지/기사: AI 없음, 원본 그대로 저장
+// PDF 레포트: Gemini Flash(무료)로 정리 후 저장
 // ═══════════════════════════════════════════════════
 
 const DEFAULT_CHANNELS = [
@@ -108,57 +178,143 @@ async function scrapeArticle(url) {
   } catch (e) { return null; }
 }
 
-// ─── PDF 레포트 텍스트 추출 (웹 스크래핑) ───
+// ─── PDF 레포트 다운로드 + 텍스트 추출 (Bot API) ───
+// JINO의 비공개 채널에서 포워딩된 PDF를 다운로드하고 텍스트를 추출
+const PRIVATE_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '-1003884768252';
+
 async function fetchReportTexts() {
   const reports = [];
+
+  // ── Part 1: Bot API로 비공개 채널의 PDF 다운로드 + 텍스트 추출 ──
+  if (BOT_TOKEN) {
+    try {
+      // 최근 메시지 가져오기 (getUpdates는 100개 제한이라 직접 채널 메시지 조회)
+      // forwardMessage나 getChat은 채널 멤버여야 작동
+      // Bot API에는 "채널 메시지 목록 조회" API가 없으므로 getUpdates 사용
+      const updatesRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=-50&limit=50`);
+      if (updatesRes.ok) {
+        const updatesData = await updatesRes.json();
+        const updates = updatesData.result || [];
+        
+        for (const update of updates) {
+          const msg = update.channel_post || update.message;
+          if (!msg) continue;
+          
+          // 문서(PDF) 파일이 있는 메시지
+          if (msg.document) {
+            const doc = msg.document;
+            const fileName = doc.file_name || 'unknown.pdf';
+            const caption = msg.caption || '';
+            
+            // PDF 파일만 처리
+            if (fileName.toLowerCase().endsWith('.pdf') || doc.mime_type === 'application/pdf') {
+              try {
+                // Step 1: 파일 경로 가져오기
+                const fileRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${doc.file_id}`);
+                if (!fileRes.ok) continue;
+                const fileData = await fileRes.json();
+                const filePath = fileData.result?.file_path;
+                if (!filePath) continue;
+
+                // Step 2: 파일 다운로드
+                const downloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+                const pdfRes = await fetch(downloadUrl);
+                if (!pdfRes.ok) continue;
+                const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+
+                // Step 3: PDF 텍스트 추출 (전체)
+                let pdfRawText = '';
+                try {
+                  const pdfParse = (await import('pdf-parse')).default;
+                  const parsed = await pdfParse(pdfBuffer);
+                  pdfRawText = parsed.text; // 전체 추출 (잘림 없음)
+                } catch (parseErr) {
+                  pdfRawText = `[PDF 파싱 실패: ${parseErr.message}]`;
+                }
+
+                // Step 4: Gemini Flash로 정리 (무료, 요약 아님!)
+                // 중복/군더더기만 삭제, 수치/데이터/핵심내용 전부 유지
+                const organizedText = await organizeWithGemini(pdfRawText, fileName);
+
+                reports.push({
+                  msgId: msg.message_id,
+                  fileName,
+                  channel: 'bot_private',
+                  text: `[PDF 레포트: ${fileName}]\n캡션: ${caption}\n\n${organizedText}`,
+                  extractedAt: new Date().toISOString(),
+                  source: 'pdf',
+                  rawLength: pdfRawText.length,
+                  organizedLength: organizedText.length,
+                });
+
+                console.log(`PDF processed: ${fileName} (원본 ${pdfRawText.length}자 → 정리 ${organizedText.length}자)`);
+              } catch (dlErr) {
+                console.error(`PDF download error [${fileName}]:`, dlErr.message);
+              }
+            }
+          }
+          
+          // 텍스트 메시지 (이미지 캡션 포함)
+          if (msg.text || msg.caption) {
+            const text = msg.text || msg.caption || '';
+            if (text.length > 20 && !msg.document) {
+              reports.push({
+                msgId: msg.message_id,
+                fileName: text.slice(0, 80),
+                channel: 'bot_private',
+                text: `[리포트 메시지] ${text}`.slice(0, 3000),
+                extractedAt: new Date().toISOString(),
+                source: 'caption',
+              });
+            }
+          }
+          
+          await new Promise(r => setTimeout(r, 100)); // rate limiting
+        }
+      }
+    } catch (e) {
+      console.error('Bot API report fetch error:', e.message);
+    }
+  }
+
+  // ── Part 2: 공개 채널 웹 스크래핑 (캡션 텍스트) ──
   try {
     const res = await fetch(`https://t.me/s/${REPORT_CHANNEL}`, { 
       headers: { 
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
-        'Accept': 'text/html,application/xhtml+xml',
       } 
     });
-    if (!res.ok) { console.error('Report channel fetch failed:', res.status); return []; }
-    const html = await res.text();
-
-    // 메시지 블록 단위로 분할 (여러 패턴 시도)
-    const blocks = html.split(/tgme_widget_message_wrap|js-widget_message_wrap/);
-    
-    for (const block of blocks.slice(1)) { // 첫 블록은 헤더
-      const idMatch = block.match(/data-post="[^\/]*\/(\d+)"/);
-      const msgId = idMatch ? parseInt(idMatch[1]) : 0;
+    if (res.ok) {
+      const html = await res.text();
+      const existingIds = new Set(reports.map(r => r.msgId));
       
-      // 패턴 1: document_title 클래스
-      const titleMatch = block.match(/document_title[^>]*>([^<]+)/);
-      // 패턴 2: document 태그 내 파일 설명
-      const docMatch = block.match(/document_extra[^>]*>([^<]+)/);
-      // 패턴 3: 메시지 텍스트
-      const textMatch = block.match(/message_text[^>]*>([\s\S]*?)<\/div>/);
-      // 패턴 4: 파일 크기 정보
-      const sizeMatch = block.match(/document_size[^>]*>([^<]+)/);
-
-      const fileName = titleMatch ? titleMatch[1].trim() : '';
-      const docInfo = docMatch ? docMatch[1].trim() : '';
-      const msgText = textMatch ? textMatch[1].replace(/<br\s*\/?>/g, '\n').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').trim() : '';
-      const fileSize = sizeMatch ? sizeMatch[1].trim() : '';
-
-      // 파일이 있거나 리포트 관련 텍스트가 있으면 수집
-      if (fileName || (msgText && (msgText.includes('.pdf') || msgText.includes('리포트') || msgText.includes('보고서')))) {
-        const displayName = fileName || (msgText.slice(0, 60) + '...');
-        reports.push({
-          msgId,
-          fileName: displayName,
-          fileSize,
-          channel: REPORT_CHANNEL,
-          text: `[레포트: ${displayName}]${fileSize ? ` (${fileSize})` : ''}\n${msgText}`.slice(0, 3000),
-          extractedAt: new Date().toISOString(),
-        });
+      // 메시지 텍스트 추출
+      const msgRegex = /data-post="[^"]*\/(\d+)"[\s\S]*?message_text[^>]*>([\s\S]*?)<\/div>/g;
+      let match;
+      while ((match = msgRegex.exec(html)) !== null) {
+        const msgId = parseInt(match[1]);
+        if (existingIds.has(msgId)) continue;
+        const rawText = match[2].replace(/<br\s*\/?>/g, '\n').replace(/<[^>]+>/g, '')
+          .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
+        if (rawText.length > 10) {
+          reports.push({ msgId, fileName: rawText.slice(0, 80), channel: REPORT_CHANNEL, text: `[리포트갤러리] ${rawText}`.slice(0, 3000), extractedAt: new Date().toISOString(), source: 'web' });
+          existingIds.add(msgId);
+        }
+      }
+      
+      // document_title 패턴
+      const docRegex = /data-post="[^"]*\/(\d+)"[\s\S]*?document_title[^>]*>([^<]+)/g;
+      let docMatch;
+      while ((docMatch = docRegex.exec(html)) !== null) {
+        const msgId = parseInt(docMatch[1]);
+        if (existingIds.has(msgId)) continue;
+        reports.push({ msgId, fileName: docMatch[2].trim(), channel: REPORT_CHANNEL, text: `[리포트갤러리] 파일: ${docMatch[2].trim()}`, extractedAt: new Date().toISOString(), source: 'web' });
       }
     }
-    
-    console.log(`Report channel: ${blocks.length - 1} messages scanned, ${reports.length} reports found`);
-  } catch (e) { console.error('Report fetch error:', e.message); }
+  } catch (e) { console.error('Web scrape report error:', e.message); }
+
+  console.log(`Reports collected: ${reports.length} (PDF: ${reports.filter(r => r.source === 'pdf').length}, caption: ${reports.filter(r => r.source === 'caption').length}, web: ${reports.filter(r => r.source === 'web').length})`);
   return reports;
 }
 

@@ -28,18 +28,63 @@ export default async function handler(req, res) {
     const stocks = [...(mv.domestic_stocks || []), ...(mv.overseas_stocks || [])];
     if (stocks.length === 0) return res.status(400).json({ error: '포트폴리오에 편입된 종목이 없습니다.' });
 
-    // 2. 텔레그램 데이터
-    const { data: digest } = await supabase.from('telegram_digests').select('raw_messages, article_bodies, report_texts')
-      .order('collected_at', { ascending: false }).limit(1).single();
+    // 2. 텔레그램 데이터 — 7일 메시지+기사, 30일 레포트
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const { data: recentDigests } = await supabase.from('telegram_digests')
+      .select('raw_messages, article_bodies, report_texts, date_key')
+      .gte('collected_at', sevenDaysAgo.toISOString())
+      .order('collected_at', { ascending: true })
+      .limit(20);
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const { data: reportDigests } = await supabase.from('telegram_digests')
+      .select('report_texts, date_key')
+      .gte('collected_at', thirtyDaysAgo.toISOString())
+      .order('collected_at', { ascending: true })
+      .limit(50);
 
     const allMsgs = [];
-    if (digest?.raw_messages) {
-      for (const [handle, msgs] of Object.entries(digest.raw_messages)) {
-        for (const msg of msgs) allMsgs.push(`[${handle}] ${msg.text.slice(0, 500)}`);
+    const seenMsgKeys = new Set();
+    const allArticleTexts = [];
+    const seenUrls = new Set();
+    const allReportTexts = [];
+    const seenReportKeys = new Set();
+
+    for (const d of (recentDigests || [])) {
+      const dateLabel = d.date_key || '';
+      for (const [handle, msgs] of Object.entries(d.raw_messages || {})) {
+        for (const msg of msgs) {
+          const key = `${handle}_${msg.id}`;
+          if (seenMsgKeys.has(key)) continue;
+          seenMsgKeys.add(key);
+          allMsgs.push(`[${dateLabel}][${handle}] ${msg.text.slice(0, 500)}`);
+        }
+      }
+      for (const a of (d.article_bodies || [])) {
+        if (a.url && seenUrls.has(a.url)) continue;
+        if (a.url) seenUrls.add(a.url);
+        allArticleTexts.push(`[${dateLabel}][${a.title}] ${a.body.slice(0, 800)}`);
+      }
+      for (const r of (d.report_texts || [])) {
+        const rKey = `${r.msgId || r.fileName}`;
+        if (seenReportKeys.has(rKey)) continue;
+        seenReportKeys.add(rKey);
+        allReportTexts.push(`[${dateLabel}][${r.fileName}] ${r.text.slice(0, 600)}`);
       }
     }
-    const articles = (digest?.article_bodies || []).slice(0, 10).map(a => `[${a.title}] ${a.body.slice(0, 800)}`);
-    const reports = (digest?.report_texts || []).slice(0, 5).map(r => `[${r.fileName}] ${r.text.slice(0, 600)}`);
+    // 30일 레포트 추가
+    for (const d of (reportDigests || [])) {
+      for (const r of (d.report_texts || [])) {
+        const rKey = `${r.msgId || r.fileName}`;
+        if (seenReportKeys.has(rKey)) continue;
+        seenReportKeys.add(rKey);
+        allReportTexts.push(`[${d.date_key || ''}][${r.fileName}] ${r.text.slice(0, 600)}`);
+      }
+    }
+    const articles = allArticleTexts.slice(-10);
+    const reports = allReportTexts.slice(-10);
 
     // 3. 피드백
     let feedbackStr = '';
@@ -54,6 +99,8 @@ export default async function handler(req, res) {
 
 # 절대 규칙
 1. 텔레그램 채널과 기사/레포트에 있는 정보를 최우선으로 사용하세요.
+   데이터는 시간순([날짜] 라벨)으로 정렬되어 있습니다. 최신 정보에 가중치를 두되, 이전 대비 변화도 반영하세요.
+   메시지/기사는 최근 7일, 레포트는 최근 30일치가 포함되어 있습니다.
 2. 각 종목당 반드시 포함: 기업개요(3~4문장) · 대표제품 · 주가/시총/PER/PEG/영업이익/목표가 · 투자포인트 3개(각 3~4문장) · 리스크 3개 · **왜 이 종목인가(why_this_stock)**: 같은 섹터/산업의 경쟁사 대비 이 종목을 선택한 구체적 이유 3~5문장(PER/PBR/성장률 비교 수치 포함)
 3. 투자포인트는 구체적 수치와 인과관계를 포함하세요. "성장하고 있다" 같은 뻔한 말 금지.
 4. 텔레그램 정보가 부족한 종목은 당신의 지식으로 보완하되, 문장 끝에 [AI 보완]을 붙이세요.

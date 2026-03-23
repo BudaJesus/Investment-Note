@@ -14,15 +14,37 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 8000) {
 }
 
 async function gatherData() {
-  const result = { yahooData: {}, investingData: {}, digest: null, feedback: null };
+  const result = { yahooData: {}, investingData: {}, digests: [], feedback: null };
+  // 1. auto_data (최신 시장 수치)
   try {
     const { data } = await supabase.from('auto_data').select('yahoo_data, investing_data').order('date_key', { ascending: false }).limit(1).single();
     if (data) { result.yahooData = data.yahoo_data || {}; result.investingData = data.investing_data || {}; }
   } catch (e) {}
+  // 2. telegram_digests — 최근 7일치 전부 (메시지/기사용)
   try {
-    const { data } = await supabase.from('telegram_digests').select('*').order('collected_at', { ascending: false }).limit(1).single();
-    if (data) result.digest = data;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const { data } = await supabase.from('telegram_digests')
+      .select('*')
+      .gte('collected_at', sevenDaysAgo.toISOString())
+      .order('collected_at', { ascending: true }) // 시간순 정렬 (오래된 것 → 최신)
+      .limit(20);
+    if (data) result.digests = data;
   } catch (e) {}
+  // 2-1. 레포트는 30일치 별도 수집 (레포트는 오래돼도 유효)
+  try {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const { data } = await supabase.from('telegram_digests')
+      .select('report_texts, date_key')
+      .gte('collected_at', thirtyDaysAgo.toISOString())
+      .order('collected_at', { ascending: true })
+      .limit(50);
+    if (data) {
+      result.reportDigests = data;
+    }
+  } catch (e) {}
+  // 3. 피드백 루프
   try {
     const { data } = await supabase.from('feedback_prompts').select('prompt_injection, hit_rates').order('generated_at', { ascending: false }).limit(1).single();
     if (data) result.feedback = data;
@@ -30,32 +52,84 @@ async function gatherData() {
   return result;
 }
 
-// ═══ 시장전망 생성 (텔레그램+기사+레포트 우선, AI 보완) ═══
-async function generateMarketView(data) {
-  const { digest, yahooData, investingData, feedback } = data;
-  const raw = digest?.raw_messages || {};
-  const articles = digest?.article_bodies || [];
-  const reports = digest?.report_texts || [];
-  const yahoo = digest?.yahoo_snapshot || yahooData || {};
+/**
+ * 여러 digest를 시간순으로 합치기
+ * 최신 정보가 뒤에 오므로 Claude가 자연스럽게 최신에 가중치를 둠
+ */
+function mergeDigests(digests, reportDigests = []) {
+  const allMessages = [];
+  const allArticles = [];
+  const allReports = [];
+  let latestYahoo = {};
+  const seenMsgIds = new Set();
+  const seenUrls = new Set();
+  const seenReportIds = new Set();
 
-  // 전체 메시지 합치기 (원문)
-  const allMsgs = [];
-  for (const [handle, msgs] of Object.entries(raw)) {
-    for (const msg of msgs) allMsgs.push(`[${handle}] ${msg.text.slice(0, 600)}`);
+  for (const digest of digests) {
+    const dateLabel = digest.date_key || digest.collected_at?.slice(0, 10) || '';
+    // Yahoo — 최신 것으로 계속 덮어씀
+    if (digest.yahoo_snapshot && Object.keys(digest.yahoo_snapshot).length > 0) {
+      latestYahoo = { ...latestYahoo, ...digest.yahoo_snapshot };
+    }
+    // 메시지 — 중복 제거 (같은 채널+msgId)
+    for (const [handle, msgs] of Object.entries(digest.raw_messages || {})) {
+      for (const msg of msgs) {
+        const key = `${handle}_${msg.id}`;
+        if (seenMsgIds.has(key)) continue;
+        seenMsgIds.add(key);
+        allMessages.push({ date: dateLabel, handle, text: msg.text });
+      }
+    }
+    // 기사 — URL 기준 중복 제거
+    for (const a of (digest.article_bodies || [])) {
+      if (a.url && seenUrls.has(a.url)) continue;
+      if (a.url) seenUrls.add(a.url);
+      allArticles.push({ ...a, date: dateLabel });
+    }
+    // 7일 내 레포트
+    for (const r of (digest.report_texts || [])) {
+      const rKey = `${r.msgId || r.fileName}`;
+      if (seenReportIds.has(rKey)) continue;
+      seenReportIds.add(rKey);
+      allReports.push({ ...r, date: dateLabel });
+    }
   }
 
-  const articleStr = articles.slice(0, 15).map(a => `[기사: ${a.title}]\n${a.body.slice(0, 1200)}`).join('\n---\n');
-  const reportStr = reports.slice(0, 5).map(r => `[레포트: ${r.fileName}]\n${r.text.slice(0, 800)}`).join('\n---\n');
+  // 30일치 레포트 추가 (7일 이전 것만)
+  for (const d of reportDigests) {
+    for (const r of (d.report_texts || [])) {
+      const rKey = `${r.msgId || r.fileName}`;
+      if (seenReportIds.has(rKey)) continue;
+      seenReportIds.add(rKey);
+      allReports.push({ ...r, date: d.date_key || '' });
+    }
+  }
+
+  return { allMessages, allArticles, allReports, latestYahoo };
+}
+
+// ═══ 시장전망 생성 (텔레그램+기사+레포트 우선, AI 보완) ═══
+async function generateMarketView(data) {
+  const { digests, yahooData, investingData, feedback } = data;
+  const { allMessages, allArticles, allReports, latestYahoo } = mergeDigests(digests, data.reportDigests || []);
+  const yahoo = Object.keys(latestYahoo).length > 0 ? latestYahoo : yahooData;
   const feedbackStr = feedback?.prompt_injection || '';
 
-  const systemPrompt = `당신은 증권사 수석 스트래티지스트입니다. 수집된 텔레그램 채널 메시지, 뉴스 기사 원문, 증권사 리포트를 종합 분석하여 Top-Down 시장전망을 작성합니다.
+  // 시간순 메시지 구성 (날짜 라벨 포함)
+  const msgContent = allMessages.slice(-80).map(m => `[${m.date}][${m.handle}] ${m.text.slice(0, 600)}`).join('\n---\n').slice(0, 50000);
+  const articleStr = allArticles.slice(-15).map(a => `[${a.date}][기사: ${a.title}]\n${a.body.slice(0, 1200)}`).join('\n---\n').slice(0, 20000);
+  const reportStr = allReports.slice(-5).map(r => `[${r.date}][레포트: ${r.fileName}]\n${r.text.slice(0, 800)}`).join('\n---\n').slice(0, 10000);
+
+  const systemPrompt = `당신은 증권사 수석 스트래티지스트입니다. 최근 7일간 축적된 텔레그램 채널 메시지, 뉴스 기사, 증권사 리포트를 시간순으로 종합 분석하여 Top-Down 시장전망을 작성합니다.
 
 핵심 규칙:
-1. 수집된 텔레그램 메시지와 기사/레포트 내용을 최우선으로 활용하세요. 직접 인용하거나 구체적 수치를 반영하세요.
-2. 수집 정보로 커버되지 않는 부분만 당신의 지식으로 보완하세요.
-3. 각 섹션에 source_tag를 표시하세요: "tg"(텔레그램), "report"(레포트), "article"(기사), "ai"(AI 보완)
-4. 전망은 구체적이고 상세하게 — 각 국가별 최소 8~10문장, PEG 수치, 핵심변수 3개 이상 포함
-5. 반드시 JSON으로만 응답하세요.
+1. 데이터는 시간순(오래된→최신)으로 정렬되어 있습니다. 최신 정보에 가장 높은 가중치를 두되, 이전 정보의 흐름과 변화도 반영하세요.
+2. 수집된 텔레그램 메시지와 기사/레포트 내용을 최우선으로 활용하세요. 직접 인용하거나 구체적 수치를 반영하세요.
+3. 수집 정보로 커버되지 않는 부분만 당신의 지식으로 보완하세요. 보완한 부분은 [AI 보완]을 표시하세요.
+4. 각 섹션에 source_tag를 표시하세요: "tg"(텔레그램), "report"(레포트), "article"(기사), "ai"(AI 보완)
+5. 전망은 구체적이고 상세하게 — 각 국가별 최소 8~12문장, PEG 수치, 핵심변수 3개 이상 포함
+6. 시간 흐름에 따른 변화(예: "지난주 대비 금리 기대 하락", "3일 전 대비 외국인 매수세 전환")를 반드시 언급하세요.
+7. 반드시 JSON으로만 응답하세요.
 
 ${feedbackStr ? `[피드백 루프]\n${feedbackStr}\n` : ''}`;
 
@@ -65,18 +139,19 @@ ${JSON.stringify(yahoo, null, 1)}
 ## 경제지표 (Investing.com)
 ${JSON.stringify(Object.fromEntries(Object.entries(investingData).slice(0, 15).map(([k, v]) => [k, { latest: v?.records?.[0]?.actual, date: v?.records?.[0]?.date }])), null, 1)}
 
-## 텔레그램 채널 메시지 원문 (${allMsgs.length}개)
-${allMsgs.slice(0, 60).join('\n---\n').slice(0, 30000)}
+## 텔레그램 채널 메시지 원문 — 최근 7일 시간순 (${allMessages.length}개, 중복제거됨)
+${msgContent}
 
-## 기사 원문 (${articles.length}개)
-${articleStr.slice(0, 20000)}
+## 기사 원문 (${allArticles.length}개)
+${articleStr}
 
-## 증권사 레포트 (${reports.length}개)
-${reportStr.slice(0, 10000)}
+## 증권사 레포트 (${allReports.length}개)
+${reportStr}
 
 ---
 
-위 정보를 종합하여 아래 JSON을 작성하세요:
+위 데이터는 최근 7일간 축적된 정보입니다. 시간순으로 정렬되어 있으며, 뒤쪽(최신)일수록 중요합니다.
+이전 정보와 최신 정보의 변화 흐름을 반영하여 아래 JSON을 작성하세요:
 
 {
   "indicators": { "kospi": { "value": "수치", "change": "+0.5%" }, "sp500": {...}, "nasdaq": {...}, "usdkrw": {...}, "gold": {...}, "wti": {...}, "nikkei": {...}, "shanghai": {...}, "taiex": {...}, "us10y": {...}, "kr_rate": "...", "us_rate": "..." },
@@ -133,7 +208,7 @@ export default async function handler(req, res) {
     await supabase.from('outlooks').insert({
       user_id: userId, date_key: dateKey,
       market_view: marketView, stock_analysis: {},
-      sources: { digest_id: data.digest?.id || null },
+      sources: { digest_count: data.digests?.length || 0, latest_digest: data.digests?.[data.digests.length - 1]?.date_key || null },
       source_tags: marketView?.macro ? Object.fromEntries(Object.entries(marketView.macro).map(([k, v]) => [k, v.sources || ['ai']])) : {},
       version,
     });

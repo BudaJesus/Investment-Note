@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-async function callClaude(systemPrompt, userPrompt, maxTokens = 4000) {
+async function callClaude(systemPrompt, userPrompt, maxTokens = 6000) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
@@ -15,11 +15,14 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 4000) {
 
 export default async function handler(req, res) {
   try {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const { data: digests, error } = await supabase
       .from('telegram_digests')
       .select('*')
-      .order('collected_at', { ascending: false })
-      .limit(3);
+      .gte('collected_at', sevenDaysAgo.toISOString())
+      .order("collected_at", { ascending: true })
+      .limit(20);
 
     if (error || !digests || digests.length === 0) 
       return res.status(400).json({ error: '수집된 데이터가 없습니다. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
@@ -66,13 +69,13 @@ export default async function handler(req, res) {
 - 텔레그램 메시지 자체가 뉴스 요약인 경우가 많습니다. 이것도 스크랩으로 만드세요.
 - 카테고리: securities(증권)/economy(경제)/it(IT)/industry(산업)/realestate(부동산)/crypto(가상화폐)/other(기타)
 - 요약은 3~5문장, 핵심 수치와 시장 영향 포함
-- 최소 10개, 가능하면 15~20개 스크랩을 만드세요
+- 최소 20개, 가능하면 25~30개 스크랩을 만드세요. 양이 많을수록 좋습니다
 - 같은 내용 중복은 제거하세요
 - JSON 배열로만 응답하세요`;
 
     const userPrompt = `아래 텔레그램 메시지와 기사를 신문스크랩으로 정리하세요:\n\n${content}\n\nJSON 배열:\n[\n  { "title": "제목 (한줄로 핵심 요약)", "url": "URL 있으면 포함, 없으면 빈문자열", "category": "카테고리id", "summary": "3~5문장 상세 요약 (수치 포함)", "source": "auto", "channel": "텔레그램채널명" }\n]`;
 
-    const result = await callClaude(systemPrompt, userPrompt, 5000);
+    const result = await callClaude(systemPrompt, userPrompt, 6000);
     const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const scraps = JSON.parse(cleaned);
 

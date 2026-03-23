@@ -15,29 +15,50 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 8000) {
 
 export default async function handler(req, res) {
   try {
-    const { data: digests } = await supabase.from('telegram_digests').select('*').order('collected_at', { ascending: false }).limit(3);
+    // 최근 7일치 digest 전부 가져오기 (시간순)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const { data: digests } = await supabase.from('telegram_digests')
+      .select('*')
+      .gte('collected_at', sevenDaysAgo.toISOString())
+      .order('collected_at', { ascending: true }) // 오래된 것 → 최신
+      .limit(20);
     if (!digests || digests.length === 0) return res.status(400).json({ error: '수집된 데이터가 없습니다. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
 
     const allMessages = [];
     const allArticles = [];
     const allReports = [];
     let yahooSnapshot = {};
+    const seenMsgKeys = new Set();
+    const seenUrls = new Set();
     
     for (const digest of digests) {
+      const dateLabel = digest.date_key || '';
       if (digest.yahoo_snapshot && Object.keys(digest.yahoo_snapshot).length > 0) yahooSnapshot = { ...yahooSnapshot, ...digest.yahoo_snapshot };
       for (const [handle, msgs] of Object.entries(digest.raw_messages || {})) {
-        for (const msg of msgs) allMessages.push(`[${handle}] ${msg.text}`);
+        for (const msg of msgs) {
+          const key = `${handle}_${msg.id || msg.text.slice(0,30)}`;
+          if (seenMsgKeys.has(key)) continue;
+          seenMsgKeys.add(key);
+          allMessages.push(`[${dateLabel}][${handle}] ${msg.text}`);
+        }
       }
-      for (const a of (digest.article_bodies || [])) allArticles.push(a);
+      for (const a of (digest.article_bodies || [])) {
+        if (a.url && seenUrls.has(a.url)) continue;
+        if (a.url) seenUrls.add(a.url);
+        allArticles.push(a);
+      }
       for (const r of (digest.report_texts || [])) allReports.push(r);
     }
 
-    const msgContent = allMessages.slice(0, 80).join('\n---\n').slice(0, 60000);
+    // 최신 80개 메시지 (뒤쪽이 최신)
+    const msgContent = allMessages.slice(-80).join('\n---\n').slice(0, 60000);
     const articleContent = allArticles.slice(0, 15).map(a => `[기사: ${a.title}]\n${a.body.slice(0, 2000)}`).join('\n===\n').slice(0, 30000);
     const reportContent = allReports.slice(0, 5).map(r => `[${r.fileName}]\n${r.text.slice(0, 1500)}`).join('\n===\n').slice(0, 10000);
 
     const systemPrompt = `당신은 증권사 리서치센터 소속 시니어 스트래티지스트입니다.
-텔레그램 채널, 기사, 레포트를 읽고 투자일지를 작성합니다.
+최근 7일간 축적된 텔레그램 채널 메시지, 기사, 레포트를 시간순으로 읽고 투자일지를 작성합니다.
+데이터는 [날짜][채널명] 형태로 시간순 정렬되어 있습니다. 최신 정보(뒤쪽)에 가장 높은 가중치를 두되, 이전 대비 변화 흐름도 반영하세요.
 
 # 작업 프로세스 (반드시 이 순서대로)
 
@@ -90,7 +111,7 @@ ${reportContent}
 ---
 
 위 원본 데이터를 STEP 1→2 프로세스대로 분석하고, 아래 JSON을 작성하세요.
-모든 reason은 4~6문장, 모든 outlook은 3~5문장입니다.
+reason은 주요국가(미국·한국) 6~10문장, 기타국가 4~6문장. outlook은 주요국가 4~6문장, 기타 3~4문장. 섹터·종목도 reason 4~6문장, outlook 3~4문장. 숫자·이벤트·채널명이 없는 빈 문장은 절대 포함하지 마세요.
 숫자와 구체적 이벤트가 없는 문장은 절대 포함하지 마세요.
 
 {
