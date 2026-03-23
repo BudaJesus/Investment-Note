@@ -472,8 +472,42 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                 const result = await window.autoFillJournal();
                 if (result?.success && result?.data) {
                   const d = result.data;
+                  const y = result.yahoo || {}; // Yahoo Finance 수치
                   updateEntry((prev) => {
                     const next = { ...prev };
+                    // ── Yahoo 수치 → markets 배열 (지수 가격/등락률) ──
+                    if (Object.keys(y).length > 0) {
+                      const markets = [...(next.markets || [])];
+                      for (let i = 0; i < markets.length; i++) {
+                        const yd = y[markets[i].id];
+                        if (yd) {
+                          markets[i] = { ...markets[i], value: yd.price || markets[i].value, change: yd.change || markets[i].change };
+                        }
+                      }
+                      next.markets = markets;
+                      // ── Yahoo → bonds 배열 (수익률/등락) ──
+                      const yBonds = [...(next.bonds || [])];
+                      const bondMap = { us10y: y.us10y, us2y: y.us2y, kr10y: y.kr10y, kr3y: y.kr3y };
+                      for (let i = 0; i < yBonds.length; i++) {
+                        const bd = bondMap[yBonds[i].id];
+                        if (bd) yBonds[i] = { ...yBonds[i], yield: bd.price || yBonds[i].yield, change: bd.change || yBonds[i].change };
+                      }
+                      next.bonds = yBonds;
+                      // ── Yahoo → fx 배열 (환율/등락) ──
+                      const yFx = [...(next.fx || [])];
+                      for (let i = 0; i < yFx.length; i++) {
+                        const fd = y[yFx[i].id];
+                        if (fd) yFx[i] = { ...yFx[i], rate: fd.price || yFx[i].rate, change: fd.change || yFx[i].change };
+                      }
+                      next.fx = yFx;
+                      // ── Yahoo → commodities 배열 (가격/등락) ──
+                      const yComms = [...(next.commodities || [])];
+                      for (let i = 0; i < yComms.length; i++) {
+                        const cd = y[yComms[i].id];
+                        if (cd) yComms[i] = { ...yComms[i], price: cd.price || yComms[i].price, change: cd.change || yComms[i].change };
+                      }
+                      next.commodities = yComms;
+                    }
                     // ── marketNotes (국가별 증시 — 무조건 덮어쓰기) ──
                     if (d.marketNotes) {
                       const mn = { ...(next.marketNotes || {}) };
@@ -3435,6 +3469,7 @@ function PortfolioPage({ showToast, autoData }) {
                   ))}
                   {/* 리스크 */}
                   {stock.risks && <div style={{ background: C.downBg, border: `1px solid rgba(220,38,38,0.15)`, borderRadius: 5, padding: "6px 10px", fontSize: 10, color: C.down, lineHeight: 1.5, marginTop: 6 }}>⚠️ 리스크: {stock.risks}</div>}
+                  {stock.why_this_stock && <div style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.15)", borderRadius: 5, padding: "6px 10px", fontSize: 10, color: C.accent, lineHeight: 1.6, marginTop: 6 }}>💎 왜 이 종목인가: {stock.why_this_stock}</div>}
                 </div>
               ))}
             </div>
@@ -3467,6 +3502,7 @@ function PortfolioPage({ showToast, autoData }) {
                     <p key={pi} style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 3 }}>• {pt}</p>
                   ))}
                   {stock.risks && <div style={{ background: C.downBg, border: `1px solid rgba(220,38,38,0.15)`, borderRadius: 5, padding: "6px 10px", fontSize: 10, color: C.down, lineHeight: 1.5, marginTop: 6 }}>⚠️ 리스크: {stock.risks}</div>}
+                  {stock.why_this_stock && <div style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.15)", borderRadius: 5, padding: "6px 10px", fontSize: 10, color: C.accent, lineHeight: 1.6, marginTop: 6 }}>💎 왜 이 종목인가: {stock.why_this_stock}</div>}
                 </div>
               ))}
             </div>
@@ -3613,6 +3649,8 @@ function ChannelsPage({ showToast }) {
   const [todayStats, setTodayStats] = useState(null);
   const [loading, setLoading] = useState(false);
   const [newHandle, setNewHandle] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -3625,7 +3663,6 @@ function ChannelsPage({ showToast }) {
         if (window.getTodayDigests) {
           const digests = await window.getTodayDigests();
           if (digests.length > 0) {
-            // 오늘 수집 통계 합산
             const stats = { total_messages: 0, total_urls: 0, total_reports: 0 };
             for (const d of digests) {
               if (d.stats) {
@@ -3637,7 +3674,6 @@ function ChannelsPage({ showToast }) {
             setTodayStats(stats);
           }
         }
-        // 기본 채널 초기화
         if (window.initDefaultChannels) await window.initDefaultChannels();
       } catch (e) {}
       setLoading(false);
@@ -3647,29 +3683,78 @@ function ChannelsPage({ showToast }) {
   const handleToggle = async (handle, currentEnabled) => {
     if (window.toggleChannel) {
       const ok = await window.toggleChannel(handle, !currentEnabled);
-      if (ok) {
-        setChannels(prev => prev.map(ch => ch.handle === handle ? { ...ch, enabled: !currentEnabled } : ch));
-      }
+      if (ok) setChannels(prev => prev.map(ch => ch.handle === handle ? { ...ch, enabled: !currentEnabled } : ch));
     }
   };
 
   const handleAdd = async () => {
     const handle = newHandle.replace("https://t.me/", "").replace("t.me/", "").replace("@", "").trim();
     if (!handle) { showToast("채널명을 입력해주세요"); return; }
+    // 중복 체크
+    if (channels.find(ch => ch.handle === handle)) {
+      showToast("이미 등록된 채널입니다: @" + handle, 0);
+      return;
+    }
     if (window.upsertChannel) {
       const result = await window.upsertChannel({ handle, name: handle, category: "기타", enabled: true });
       if (result) {
-        setChannels(prev => [...prev, result]);
+        setChannels(prev => [...prev.filter(ch => ch.handle !== handle), result]);
         setNewHandle("");
         showToast(`${handle} 채널 추가됨`);
-      } else {
-        showToast("추가 실패");
+      } else showToast("추가 실패");
+    }
+  };
+
+  const handleDelete = async (handle) => {
+    if (!confirm(`@${handle} 채널을 삭제하시겠습니까?`)) return;
+    if (window.deleteChannel) {
+      const ok = await window.deleteChannel(handle);
+      if (ok) {
+        setChannels(prev => prev.filter(ch => ch.handle !== handle));
+        showToast(`@${handle} 삭제됨`);
       }
     }
   };
 
-  const categories = [...new Set(channels.map(ch => ch.category))];
-  const catColors = { "시황": C.accent, "섹터": "#FF5630", "중국": "#F59E0B", "해외": "#F59E0B", "뉴스": "#0891B2", "기타": C.textDim };
+  const handleCategoryChange = async (handle, newCat) => {
+    if (window.updateChannelCategory) {
+      const ok = await window.updateChannelCategory(handle, newCat);
+      if (ok) {
+        // 해당 handle의 채널을 정확히 1개만 업데이트 (중복 방지)
+        setChannels(prev => {
+          const updated = prev.map(c => c.handle === handle ? { ...c, category: newCat } : c);
+          // 혹시 중복이 있으면 handle 기준으로 dedup
+          const seen = new Set();
+          return updated.filter(c => { if (seen.has(c.handle)) return false; seen.add(c.handle); return true; });
+        });
+      }
+    }
+  };
+
+  const handleNameEdit = async (handle) => {
+    if (!editName.trim()) return;
+    if (window.upsertChannel) {
+      const ch = channels.find(c => c.handle === handle);
+      if (ch) {
+        await window.upsertChannel({ ...ch, name: editName.trim() });
+        setChannels(prev => prev.map(c => c.handle === handle ? { ...c, name: editName.trim() } : c));
+      }
+    }
+    setEditingId(null);
+    setEditName("");
+  };
+
+  // 고정 카테고리 순서 (채널이 없는 카테고리는 숨김)
+  const CAT_ORDER = ["시황/글로벌매크로", "섹터전문", "중국/해외", "뉴스/데이터", "레포트", "기타"];
+  const catColors = { "시황/글로벌매크로": C.accent, "섹터전문": "#FF5630", "중국/해외": "#F59E0B", "뉴스/데이터": "#0891B2", "레포트": "#7C3AED", "기타": C.textDim };
+
+  // handle 기준 dedup (혹시 state에 중복이 있을 경우)
+  const uniqueChannels = useMemo(() => {
+    const seen = new Set();
+    return channels.filter(c => { if (seen.has(c.handle)) return false; seen.add(c.handle); return true; });
+  }, [channels]);
+
+  const activeCategories = CAT_ORDER.filter(cat => uniqueChannels.some(ch => ch.category === cat));
 
   return (
     <div style={{ padding: "12px 0" }}>
@@ -3696,32 +3781,32 @@ function ChannelsPage({ showToast }) {
 
       {loading && <div style={{ textAlign: "center", padding: "40px 0", color: C.textDim }}><div style={S.loadSpin} /><p style={{ fontSize: 12, marginTop: 8 }}>채널 불러오는 중...</p></div>}
 
-      {!loading && categories.map(cat => (
+      {!loading && activeCategories.map(cat => (
         <div key={cat}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: catColors[cat] || C.textDim, letterSpacing: 0.3, margin: "14px 0 6px" }}>{cat}</div>
-          {channels.filter(ch => ch.category === cat).map(ch => (
-            <div key={ch.handle} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 6 }}>
-              <button style={{ width: 38, height: 20, borderRadius: 10, border: "none", cursor: "pointer", position: "relative", background: ch.enabled ? C.accent : C.border }} onClick={() => handleToggle(ch.handle, ch.enabled)}>
-                <span style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: ch.enabled ? 20 : 2, transition: "left 0.2s" }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: catColors[cat] || C.textDim, letterSpacing: 0.3, margin: "14px 0 6px" }}>{cat} ({uniqueChannels.filter(ch => ch.category === cat).length})</div>
+          {uniqueChannels.filter(ch => ch.category === cat).map(ch => (
+            <div key={ch.handle} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 6 }}>
+              <button style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", position: "relative", background: ch.enabled ? C.accent : C.border, flexShrink: 0 }} onClick={() => handleToggle(ch.handle, ch.enabled)}>
+                <span style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: ch.enabled ? 18 : 2, transition: "left 0.2s" }} />
               </button>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 600 }}>{ch.name}</div>
-                <div style={{ fontSize: 10, color: C.textDim }}>@{ch.handle}{ch.description ? ` · ${ch.description}` : ""}{ch.subscribers ? ` · ${ch.subscribers}` : ""}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {editingId === ch.handle ? (
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <input style={{ ...S.indexInput, flex: 1, fontSize: 11, padding: "4px 8px" }} value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => e.key === "Enter" && handleNameEdit(ch.handle)} autoFocus />
+                    <button style={{ fontSize: 10, padding: "2px 8px", background: C.accent, color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }} onClick={() => handleNameEdit(ch.handle)}>저장</button>
+                    <button style={{ fontSize: 10, padding: "2px 6px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 4, cursor: "pointer" }} onClick={() => setEditingId(null)}>취소</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 600, cursor: "pointer" }} onClick={() => { setEditingId(ch.handle); setEditName(ch.name); }}>{ch.name} <span style={{ fontSize: 9, color: C.textDim }}>✏️</span></div>
+                    <div style={{ fontSize: 10, color: C.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{ch.handle}{ch.description ? ` · ${ch.description}` : ""}</div>
+                  </>
+                )}
               </div>
-              <select value={ch.category} onChange={async (e) => {
-                const newCat = e.target.value;
-                if (window.updateChannelCategory) {
-                  const ok = await window.updateChannelCategory(ch.handle, newCat);
-                  if (ok) setChannels(prev => prev.map(c => c.handle === ch.handle ? { ...c, category: newCat } : c));
-                }
-              }} style={{ fontSize: 9, padding: "3px 4px", border: `1px solid ${C.border}`, borderRadius: 4, background: C.bg, color: C.textMid, fontFamily: C.sans, cursor: "pointer" }}>
-                <option value="시황/글로벌매크로">시황/글로벌매크로</option>
-                <option value="섹터전문">섹터전문</option>
-                <option value="중국/해외">중국/해외</option>
-                <option value="뉴스/데이터">뉴스/데이터</option>
-                <option value="레포트">레포트</option>
-                <option value="기타">기타</option>
+              <select value={ch.category} onChange={(e) => handleCategoryChange(ch.handle, e.target.value)} style={{ fontSize: 9, padding: "3px 4px", border: `1px solid ${C.border}`, borderRadius: 4, background: C.bg, color: C.textMid, fontFamily: C.sans, cursor: "pointer", flexShrink: 0 }}>
+                {CAT_ORDER.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+              <button style={{ fontSize: 12, color: C.down, background: "none", border: "none", cursor: "pointer", padding: "2px 4px", flexShrink: 0 }} onClick={() => handleDelete(ch.handle)} title="채널 삭제">🗑</button>
             </div>
           ))}
         </div>
@@ -3732,7 +3817,7 @@ function ChannelsPage({ showToast }) {
         <input style={{ ...S.indexInput, flex: 1, fontFamily: C.sans, fontSize: 12, padding: "9px 12px" }} placeholder="t.me/채널명 입력" value={newHandle} onChange={e => setNewHandle(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAdd()} />
         <button style={{ ...S.scrapAddBtn, width: "auto", padding: "9px 16px", fontSize: 12 }} onClick={handleAdd}>+ 채널 추가</button>
       </div>
-      <p style={{ fontSize: 9, color: C.textDim, marginTop: 4 }}>공개 채널만 지원됩니다. AI가 자동으로 채널 성격을 분류합니다.</p>
+      <p style={{ fontSize: 9, color: C.textDim, marginTop: 4 }}>공개 채널만 지원됩니다. 채널명을 클릭하면 이름을 수정할 수 있습니다.</p>
     </div>
   );
 }
