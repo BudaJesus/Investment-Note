@@ -15,14 +15,15 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 4000) {
 
 export default async function handler(req, res) {
   try {
+    // 레포트 전용 쿼리: report_texts + raw_messages만 (전체 * 아님!)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const { data: digests, error } = await supabase
       .from('telegram_digests')
-      .select('*')
+      .select('report_texts, raw_messages, date_key')
       .gte('collected_at', thirtyDaysAgo.toISOString())
       .order("collected_at", { ascending: true })
-      .limit(20);
+      .limit(10);
 
     if (error || !digests || digests.length === 0)
       return res.status(200).json({ success: true, reports: [], debug: 'No digests found' });
@@ -33,30 +34,29 @@ export default async function handler(req, res) {
       for (const r of (d.report_texts || [])) allReports.push(r);
     }
 
-    // 2. 모든 메시지를 가져와서 Claude가 레포트 관련 내용을 직접 추출하게 함
-    // (키워드 매칭 대신 AI에게 맡김)
-    const allMessages = [];
+    // 2. 메시지에서 레포트 관련 내용만 빠르게 필터 (전체 보내지 않음)
+    const REPORT_KEYWORDS = ['리포트', '리서치', '레포트', '보고서', '목표가', '투자의견', 'BUY', 'SELL', 'Buy', 'Sell', '매수', '매도', '비중확대', '비중축소', '중립', '상향', '하향', 'TP ', 'TP:', '영업이익', '컨센서스', '분기실적', '어닝', '실적발표', '커버리지', '.pdf', 'PDF'];
+    const reportMessages = [];
     for (const d of digests) {
       for (const [handle, msgs] of Object.entries(d.raw_messages || {})) {
         for (const msg of msgs) {
-          if (msg.text && msg.text.length > 30) {
-            allMessages.push(`[${handle}] ${msg.text.slice(0, 800)}`);
+          if (msg.text && msg.text.length > 30 && REPORT_KEYWORDS.some(kw => msg.text.includes(kw))) {
+            reportMessages.push(`[${d.date_key || ''}][${handle}] ${msg.text.slice(0, 600)}`);
           }
         }
       }
     }
 
-    if (allReports.length === 0 && allMessages.length === 0) {
-      return res.status(200).json({ success: true, reports: [], debug: `No data. reports=${allReports.length}, messages=${allMessages.length}, digests=${digests.length}` });
+    if (allReports.length === 0 && reportMessages.length === 0) {
+      return res.status(200).json({ success: true, reports: [], debug: `No data. reports=${allReports.length}, messages=${reportMessages.length}, digests=${digests.length}` });
     }
 
     const content = [
       allReports.length > 0 ? `=== PDF 레포트 (${allReports.length}개) ===` : '',
       ...allReports.map(r => `[파일: ${r.fileName}]\n${r.text.slice(0, 1500)}`),
-      `\n=== 텔레그램 메시지 전체 (${allMessages.length}개) ===`,
-      `아래 메시지에서 증권사 리포트/리서치 관련 내용을 찾아 정리하세요:`,
-      ...allMessages.slice(0, 50),
-    ].filter(Boolean).join('\n---\n').slice(0, 50000);
+      `\n=== 레포트 관련 메시지 (${reportMessages.length}개) ===`,
+      ...reportMessages.slice(0, 30),
+    ].filter(Boolean).join('\n---\n').slice(0, 30000);
 
     const systemPrompt = `당신은 증권사 리서치 편집자입니다. 레포트 텍스트와 텔레그램 메시지에서 증권사 리포트를 추출하여 정리합니다.
 

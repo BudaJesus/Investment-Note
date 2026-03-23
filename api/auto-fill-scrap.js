@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const { data: digests, error } = await supabase
       .from('telegram_digests')
-      .select('*')
+      .select('article_bodies, raw_messages, date_key')
       .gte('collected_at', sevenDaysAgo.toISOString())
       .order("collected_at", { ascending: true })
       .limit(20);
