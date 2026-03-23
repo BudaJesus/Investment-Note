@@ -938,7 +938,7 @@ function BondSection({ entry, updateEntry, autoData }) {
       bonds: (p.bonds || BOND_ITEMS.map((b) => ({ id: b.id, yield: "", change: "", reason: "" }))).map((b) => {
         const d = yd[b.id];
         if (!d) return b;
-        return { ...b, yield: b.yield || d.price, change: b.change || d.change || "" };
+        return { ...b, yield: d.price || b.yield, change: d.change || b.change || "" };
       }),
     }));
   };
@@ -987,7 +987,7 @@ function CommoditySection({ entry, updateEntry, autoData }) {
       commodities: (p.commodities || COMMODITY_ITEMS.map((c) => ({ id: c.id, price: "", change: "", reason: "" }))).map((c) => {
         const d = yd[c.id];
         if (!d) return c;
-        return { ...c, price: c.price || d.price, change: c.change || d.change || "" };
+        return { ...c, price: d.price || c.price, change: d.change || c.change || "" };
       }),
     }));
   };
@@ -1062,7 +1062,7 @@ function MarketSection({ entry, updateEntry, autoData }) {
       markets: (p.markets || []).map((m) => {
         const yd = yahooData[m.id];
         if (!yd) return m;
-        return { ...m, value: m.value || yd.price, change: m.change || yd.change || "" };
+        return { ...m, value: yd.price || m.value, change: yd.change || m.change || "" };
       }),
     }));
   };
@@ -1309,7 +1309,7 @@ function FxSection({ entry, updateEntry, autoData }) {
       fx: (p.fx || FX_ITEMS.map((f) => ({ id: f.id, rate: "", change: "" }))).map((x) => {
         const d = yd[x.id];
         if (!d) return x;
-        return { ...x, rate: x.rate || d.price, change: x.change || d.change || "" };
+        return { ...x, rate: d.price || x.rate, change: d.change || x.change || "" };
       }),
     }));
   };
@@ -1956,7 +1956,7 @@ function ScrapPage({ scraps, setScraps, showToast }) {
               if (result?.success && result?.scraps?.length > 0) {
                 const newScraps = result.scraps.map((s, i) => ({
                   id: Date.now().toString() + i, title: s.title, url: s.url || '', category: s.category || 'other',
-                  summary: s.summary, date: new Date().toISOString().slice(0, 10), source: 'auto',
+                  summary: s.summary, createdAt: new Date().toISOString().slice(0, 10), updatedAt: new Date().toISOString().slice(0, 10), source: 'auto', channel: s.channel || '',
                 }));
                 setScraps(prev => [...newScraps, ...prev]);
                 showToast(`✅ ${newScraps.length}개 기사 자동 추가!`);
