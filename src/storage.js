@@ -73,7 +73,7 @@ window.getTodayDigests = getTodayDigests
 async function callApi(url) {
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 120000) // 120초 (서버 60초 + 여유)
+    const timeout = setTimeout(() => controller.abort(), 300000) // 300초 (서버와 동일)
     const res = await fetch(url, { signal: controller.signal })
     clearTimeout(timeout)
     if (!res.ok) {
@@ -83,7 +83,7 @@ async function callApi(url) {
     }
     return await res.json()
   } catch (e) {
-    if (e.name === 'AbortError') return { success: false, error: 'API 타임아웃 (120초 초과).' }
+    if (e.name === 'AbortError') return { success: false, error: 'API 타임아웃 (300초 초과).' }
     return { success: false, error: `네트워크 오류: ${e.message}` }
   }
 }
