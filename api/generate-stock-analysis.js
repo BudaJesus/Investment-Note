@@ -205,11 +205,44 @@ ${reports.join('\n---\n').slice(0, 8000)}
 
     const result = await callClaude(systemPrompt, userPrompt, 8000);
     let stockAnalysis;
+    const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     try {
-      stockAnalysis = JSON.parse(result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim());
-    } catch (e) {
-      return res.status(500).json({ error: 'JSON 파싱 실패: ' + e.message });
+      stockAnalysis = JSON.parse(cleaned);
+    } catch (e1) {
+      try {
+        const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+        if (s >= 0 && e > s) stockAnalysis = JSON.parse(cleaned.slice(s, e + 1));
+        else throw new Error('No object');
+      } catch (e2) {
+        return res.status(500).json({ error: 'JSON 파싱 실패: ' + e2.message, raw: cleaned.slice(0, 300) });
+      }
     }
+
+    // 구조 검증/교정
+    if (!Array.isArray(stockAnalysis.peg_table)) stockAnalysis.peg_table = [];
+    if (!Array.isArray(stockAnalysis.sectors)) stockAnalysis.sectors = [];
+    if (!Array.isArray(stockAnalysis.overseas)) stockAnalysis.overseas = [];
+    // 각 섹터의 stocks가 배열인지 확인
+    stockAnalysis.sectors = stockAnalysis.sectors.map(sec => ({
+      ...sec,
+      stocks: Array.isArray(sec.stocks) ? sec.stocks.map(s => ({
+        ...s,
+        invest_points: Array.isArray(s.invest_points) ? s.invest_points.map(String) : [],
+        source_tags: Array.isArray(s.source_tags) ? s.source_tags : ['ai'],
+        risks: typeof s.risks === 'string' ? s.risks : String(s.risks || ''),
+        why_this_stock: typeof s.why_this_stock === 'string' ? s.why_this_stock : String(s.why_this_stock || ''),
+      })) : [],
+    }));
+    stockAnalysis.overseas = stockAnalysis.overseas.map(grp => ({
+      ...grp,
+      stocks: Array.isArray(grp.stocks) ? grp.stocks.map(s => ({
+        ...s,
+        invest_points: Array.isArray(s.invest_points) ? s.invest_points.map(String) : [],
+        source_tags: Array.isArray(s.source_tags) ? s.source_tags : ['ai'],
+        risks: typeof s.risks === 'string' ? s.risks : String(s.risks || ''),
+        why_this_stock: typeof s.why_this_stock === 'string' ? s.why_this_stock : String(s.why_this_stock || ''),
+      })) : [],
+    }));
 
     // 4. 기존 outlook 업데이트
     const { error: updateError } = await supabase.from('outlooks')

@@ -90,6 +90,13 @@ export default async function handler(req, res) {
       }
     }
 
+    // 데이터 검증
+    if (!Array.isArray(scraps)) scraps = [];
+    scraps = scraps.filter(s => s && typeof s === 'object').map(s => ({
+      title: String(s.title || ''), url: String(s.url || ''), category: String(s.category || 'other'),
+      summary: String(s.summary || ''), source: 'auto', channel: String(s.channel || ''),
+    }));
+
     return res.status(200).json({ success: true, scraps, count: scraps.length });
   } catch (e) {
     console.error('auto-fill-scrap error:', e);

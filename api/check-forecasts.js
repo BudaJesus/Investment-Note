@@ -43,7 +43,17 @@ async function evaluatePendingForecasts() {
     const result = await callGemini(prompt);
     if (result) {
       try {
-        const ev = JSON.parse(result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim());
+        let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+        let ev;
+        try { ev = JSON.parse(cleaned); } catch (e1) {
+          const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+          if (s >= 0 && e > s) ev = JSON.parse(cleaned.slice(s, e + 1));
+          else continue;
+        }
+        // 구조 검증
+        if (!ev || !['hit', 'partial', 'miss'].includes(ev.status)) continue;
+        ev.actual_result = String(ev.actual_result || '');
+        ev.evaluation_note = String(ev.evaluation_note || '');
         await supabase.from('forecasts').update({ status: ev.status, actual_result: ev.actual_result, actual_value: actualData.current_price ? String(actualData.current_price) : '', evaluation_note: ev.evaluation_note, evaluated_at: new Date().toISOString() }).eq('id', f.id);
         results.push({ id: f.id, status: ev.status });
       } catch (e) {}
@@ -77,7 +87,21 @@ async function generateWeeklyFeedback(userId) {
   let analysis = { strengths: [], weaknesses: [], adjustments: [] };
   const prompt = `적중률: ${overall}%\n카테고리별: ${JSON.stringify(byCategory)}\nMiss 사례: ${evaluated.filter(f=>f.status==='miss').slice(0,3).map(f=>`[${f.category}] ${f.prediction}`).join('; ')}\n\nJSON으로만: {"strengths":[{"category":"","rate":0,"description":""}],"weaknesses":[{"category":"","rate":0,"pattern":""}],"adjustments":[{"rule":"","reason":""}]}`;
   const result = await callGemini(prompt, 1000);
-  if (result) { try { analysis = JSON.parse(result.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim()); } catch(e){} }
+  if (result) {
+    try {
+      let cleaned = result.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
+      let parsed;
+      try { parsed = JSON.parse(cleaned); } catch (e1) {
+        const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+        if (s >= 0 && e > s) parsed = JSON.parse(cleaned.slice(s, e + 1));
+      }
+      if (parsed) {
+        analysis.strengths = Array.isArray(parsed.strengths) ? parsed.strengths : [];
+        analysis.weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [];
+        analysis.adjustments = Array.isArray(parsed.adjustments) ? parsed.adjustments : [];
+      }
+    } catch(e){}
+  }
 
   const promptInjection = `[AI 피드백 ${new Date().toISOString().slice(0,10)}] 적중률 ${overall}%(${total}건). 약점: ${Object.entries(byCategory).filter(([,v])=>v<55).map(([k,v])=>`${k}:${v}%`).join(', ')||'없음'}. ${analysis.adjustments?.map(a=>a.rule).join('. ')||''}`;
   const now = new Date();

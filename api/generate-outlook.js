@@ -181,8 +181,35 @@ ${reportStr}
 }`;
 
   const result = await callClaude(systemPrompt, userPrompt, 8000);
-  try { return JSON.parse(result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()); }
-  catch (e) { return null; }
+  const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  let mv;
+  try { mv = JSON.parse(cleaned); } catch (e1) {
+    try {
+      const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+      if (s >= 0 && e > s) mv = JSON.parse(cleaned.slice(s, e + 1));
+      else return null;
+    } catch (e2) { return null; }
+  }
+  if (!mv) return null;
+
+  // 구조 검증/교정
+  if (typeof mv.macro !== 'object' || Array.isArray(mv.macro)) mv.macro = {};
+  for (const [k, v] of Object.entries(mv.macro)) {
+    if (typeof v === 'string') mv.macro[k] = { text: v, sources: ['ai'] };
+    else if (typeof v?.text !== 'string') mv.macro[k] = { text: String(v?.text || v || ''), sources: v?.sources || ['ai'] };
+  }
+  if (typeof mv.fx === 'string') mv.fx = { text: mv.fx, sources: ['ai'] };
+  else if (mv.fx && typeof mv.fx.text !== 'string') mv.fx = { text: String(mv.fx.text || ''), sources: mv.fx.sources || ['ai'] };
+  if (!Array.isArray(mv.themes)) mv.themes = [];
+  if (!Array.isArray(mv.scenarios)) mv.scenarios = [];
+  if (!Array.isArray(mv.predictions)) mv.predictions = [];
+  if (!Array.isArray(mv.domestic_stocks)) mv.domestic_stocks = [];
+  if (!Array.isArray(mv.overseas_stocks)) mv.overseas_stocks = [];
+  if (!Array.isArray(mv.gold_bonds_cash)) mv.gold_bonds_cash = [];
+  if (typeof mv.speaking_guide !== 'string') mv.speaking_guide = String(mv.speaking_guide || '');
+  if (typeof mv.allocation !== 'object' || Array.isArray(mv.allocation)) mv.allocation = {};
+
+  return mv;
 }
 // ═══ API Handler — 포트폴리오 "자동입력" 버튼 ═══
 export default async function handler(req, res) {

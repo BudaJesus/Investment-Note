@@ -105,6 +105,16 @@ JSON 배열로만 응답하세요.
       }
     }
 
+    // 데이터 검증
+    if (!Array.isArray(reports)) reports = [];
+    reports = reports.filter(r => r && typeof r === 'object').map(r => ({
+      title: String(r.title || ''), source: String(r.source || 'other'), sector: String(r.sector || 'other'),
+      analyst: String(r.analyst || ''), summary: String(r.summary || ''),
+      stocks: String(r.stocks || ''), target_price: String(r.target_price || ''),
+      opinion: String(r.opinion || ''), rating: Number(r.rating) || 3,
+      date: String(r.date || new Date().toISOString().slice(0, 10)),
+    }));
+
     return res.status(200).json({ success: true, reports, count: reports.length });
   } catch (e) {
     console.error('auto-fill-report error:', e);

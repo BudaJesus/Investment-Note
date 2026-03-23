@@ -149,25 +149,137 @@ reason은 주요국가(미국·한국) 6~10문장, 기타국가 4~6문장. outlo
   "memo": "4~6문장. 오늘 시장 한줄 요약 + 핵심 이벤트 3개 + 내일/이번주 주시사항 + 투자 시사점."
 }`;
 
-    const result = await callClaude(systemPrompt, userPrompt, 8000);
-    let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    let parsed;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch (e1) {
-      try {
-        // 객체 시작~끝만 추출
-        const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
-        if (s >= 0 && e > s) parsed = JSON.parse(cleaned.slice(s, e + 1));
-        else throw new Error('No object');
-      } catch (e2) {
-        return res.status(500).json({ error: 'JSON 파싱 실패: ' + e2.message, raw: cleaned.slice(0, 300) });
+    // ── 1차 Claude 호출 ──
+    let parsed = await callAndParse(systemPrompt, userPrompt, 8000);
+    if (!parsed) return res.status(500).json({ error: 'Claude 응답 파싱 실패' });
+
+    // ── 데이터 구조 검증/교정 ──
+    parsed = validateAndFix(parsed);
+
+    // ── 내용 품질 검증 — 부실하면 재요청 ──
+    const quality = checkQuality(parsed);
+    if (quality.score < 60) {
+      console.log(`Quality low (${quality.score}/100): ${quality.issues.join(', ')}. Retrying...`);
+      const retryPrompt = `이전 응답의 문제점: ${quality.issues.join('. ')}
+
+다시 작성하세요. 특히 부족한 부분을 보완하세요.
+reason은 주요국 6~10문장, outlook은 4~6문장이 필수입니다.
+숫자 없는 문장은 절대 안 됩니다.
+
+${userPrompt}`;
+      const retried = await callAndParse(systemPrompt, retryPrompt, 8000);
+      if (retried) {
+        const fixedRetry = validateAndFix(retried);
+        // 재요청 결과가 더 나으면 교체, 아니면 원본 유지
+        const retryQuality = checkQuality(fixedRetry);
+        if (retryQuality.score > quality.score) {
+          parsed = fixedRetry;
+          console.log(`Retry improved: ${quality.score} → ${retryQuality.score}`);
+        }
       }
     }
 
-    return res.status(200).json({ success: true, data: parsed, yahoo: yahooSnapshot });
+    return res.status(200).json({ success: true, data: parsed, yahoo: yahooSnapshot, quality: checkQuality(parsed) });
   } catch (e) {
     console.error('auto-fill-journal error:', e);
     return res.status(500).json({ error: e.message });
   }
+}
+
+// ── Claude 호출 + JSON 파싱 ──
+async function callAndParse(systemPrompt, userPrompt, maxTokens) {
+  try {
+    const result = await callClaude(systemPrompt, userPrompt, maxTokens);
+    let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    try { return JSON.parse(cleaned); } catch (e1) {
+      try {
+        const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+        if (s >= 0 && e > s) return JSON.parse(cleaned.slice(s, e + 1));
+      } catch (e2) {}
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+// ── 데이터 구조 검증/교정 ──
+function validateAndFix(parsed) {
+  if (!parsed) return parsed;
+      // marketNotes: 반드시 object
+      if (typeof parsed.marketNotes !== 'object' || Array.isArray(parsed.marketNotes)) parsed.marketNotes = {};
+      // 각 국가별 reason/outlook: 반드시 string
+      for (const [k, v] of Object.entries(parsed.marketNotes || {})) {
+        if (typeof v === 'string') parsed.marketNotes[k] = { reason: v, outlook: '' };
+        else if (typeof v !== 'object') parsed.marketNotes[k] = { reason: '', outlook: '' };
+        else {
+          if (typeof v.reason !== 'string') v.reason = v.reason?.text || String(v.reason || '');
+          if (typeof v.outlook !== 'string') v.outlook = v.outlook?.text || String(v.outlook || '');
+        }
+      }
+      // bondReasons, fxReasons, commodityReasons: 반드시 object with string values
+      for (const field of ['bondReasons', 'fxReasons', 'commodityReasons']) {
+        if (typeof parsed[field] !== 'object' || Array.isArray(parsed[field])) parsed[field] = {};
+        for (const [k, v] of Object.entries(parsed[field] || {})) {
+          if (typeof v !== 'string') parsed[field][k] = v?.text || String(v || '');
+        }
+      }
+      // outlook 필드들: 반드시 string
+      for (const field of ['bondOutlook', 'fxOutlook', 'commodityOutlook', 'memo']) {
+        if (typeof parsed[field] !== 'string') parsed[field] = parsed[field]?.text || String(parsed[field] || '');
+      }
+      // sectors, stocks: 반드시 array
+      if (!Array.isArray(parsed.sectors)) parsed.sectors = [];
+      if (!Array.isArray(parsed.stocks)) parsed.stocks = [];
+      // sectors 내부 값 검증
+      parsed.sectors = parsed.sectors.map(s => ({
+        name: String(s?.name || ''), change: String(s?.change || ''),
+        reason: String(s?.reason || s?.reason?.text || ''), outlook: String(s?.outlook || s?.outlook?.text || ''),
+      }));
+      // stocks 내부 값 검증
+      parsed.stocks = parsed.stocks.map(s => ({
+        name: String(s?.name || ''), ticker: String(s?.ticker || ''),
+        price: String(s?.price || ''), change: String(s?.change || ''),
+        reason: String(s?.reason || s?.reason?.text || ''), outlook: String(s?.outlook || s?.outlook?.text || ''),
+      }));
+  return parsed;
+}
+
+// ── 내용 품질 검증 ──
+function checkQuality(parsed) {
+  if (!parsed) return { score: 0, issues: ['파싱 실패'] };
+  const issues = [];
+  let score = 100;
+
+  // 주요국(us, kr) reason/outlook 길이 체크
+  const mn = parsed.marketNotes || {};
+  for (const country of ['us', 'kr']) {
+    const r = mn[country]?.reason || '';
+    const o = mn[country]?.outlook || '';
+    if (r.length < 100) { score -= 15; issues.push(`${country} reason 너무 짧음 (${r.length}자, 최소 100자)`); }
+    if (o.length < 50) { score -= 10; issues.push(`${country} outlook 너무 짧음 (${o.length}자, 최소 50자)`); }
+  }
+
+  // 기타국가 존재 체크
+  for (const country of ['jp', 'cn', 'tw', 'eu']) {
+    if (!mn[country]?.reason) { score -= 5; issues.push(`${country} reason 없음`); }
+  }
+
+  // 채권/환율/원자재 전망
+  if (!parsed.bondOutlook || parsed.bondOutlook.length < 30) { score -= 5; issues.push('bondOutlook 부족'); }
+  if (!parsed.fxOutlook || parsed.fxOutlook.length < 30) { score -= 5; issues.push('fxOutlook 부족'); }
+  if (!parsed.commodityOutlook || parsed.commodityOutlook.length < 30) { score -= 5; issues.push('commodityOutlook 부족'); }
+
+  // 개별 reason 체크
+  const br = parsed.bondReasons || {};
+  if (!br.us10y || br.us10y.length < 20) { score -= 3; issues.push('us10y reason 부족'); }
+  const fr = parsed.fxReasons || {};
+  if (!fr.usdkrw || fr.usdkrw.length < 20) { score -= 3; issues.push('usdkrw reason 부족'); }
+
+  // 섹터/종목
+  if ((parsed.sectors || []).length < 3) { score -= 10; issues.push(`섹터 ${parsed.sectors?.length || 0}개 (최소 3개)`); }
+  if ((parsed.stocks || []).length < 3) { score -= 10; issues.push(`종목 ${parsed.stocks?.length || 0}개 (최소 3개)`); }
+
+  // memo
+  if (!parsed.memo || parsed.memo.length < 30) { score -= 5; issues.push('memo 부족'); }
+
+  return { score: Math.max(0, score), issues };
 }
