@@ -76,8 +76,19 @@ export default async function handler(req, res) {
     const userPrompt = `아래 텔레그램 메시지와 기사를 신문스크랩으로 정리하세요:\n\n${content}\n\nJSON 배열:\n[\n  { "title": "제목 (한줄로 핵심 요약)", "url": "URL 있으면 포함, 없으면 빈문자열", "category": "카테고리id", "summary": "3~5문장 상세 요약 (수치 포함)", "source": "auto", "channel": "텔레그램채널명" }\n]`;
 
     const result = await callClaude(systemPrompt, userPrompt, 6000);
-    const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const scraps = JSON.parse(cleaned);
+    let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    let scraps;
+    try {
+      scraps = JSON.parse(cleaned);
+    } catch (e1) {
+      try {
+        const s = cleaned.indexOf('['), e = cleaned.lastIndexOf(']');
+        if (s >= 0 && e > s) scraps = JSON.parse(cleaned.slice(s, e + 1));
+        else throw new Error('No array');
+      } catch (e2) {
+        return res.status(500).json({ error: 'JSON 파싱 실패', raw: cleaned.slice(0, 300) });
+      }
+    }
 
     return res.status(200).json({ success: true, scraps, count: scraps.length });
   } catch (e) {

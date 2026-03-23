@@ -150,8 +150,20 @@ reason은 주요국가(미국·한국) 6~10문장, 기타국가 4~6문장. outlo
 }`;
 
     const result = await callClaude(systemPrompt, userPrompt, 8000);
-    const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (e1) {
+      try {
+        // 객체 시작~끝만 추출
+        const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+        if (s >= 0 && e > s) parsed = JSON.parse(cleaned.slice(s, e + 1));
+        else throw new Error('No object');
+      } catch (e2) {
+        return res.status(500).json({ error: 'JSON 파싱 실패: ' + e2.message, raw: cleaned.slice(0, 300) });
+      }
+    }
 
     return res.status(200).json({ success: true, data: parsed, yahoo: yahooSnapshot });
   } catch (e) {

@@ -69,13 +69,41 @@ export default async function handler(req, res) {
 
 섹터 id: semi/battery/bio/auto/it/finance/energy/consumer/industrial/realestate/macro/other
 증권사 id: samsung/mirae/kb/nh/hana/shinhan/kiwoom/daishin/hanwha/meritz/im/other
-JSON 배열로만 응답하세요.`;
+JSON 배열로만 응답하세요.
+중요: summary 텍스트 안에 큰따옴표(")를 쓰지 마세요. 작은따옴표(')나 「」를 대신 사용하세요. JSON이 깨집니다.`;
 
     const userPrompt = `${content}\n\nJSON 배열:\n[\n  { "title": "리포트 제목", "source": "증권사id(samsung/mirae/kb/nh/hana/shinhan/kiwoom/daishin/hanwha/meritz/im/other)", "sector": "섹터id(semi/battery/bio/auto/it/finance/energy/consumer/industrial/realestate/macro/other)", "analyst": "애널리스트명", "summary": "핵심논점+데이터+투자의견+목표가+결론을 빠짐없이. 요약하지말고 정리. 10문장 이상 가능.", "stocks": "관련종목(쉼표구분)", "target_price": "목표가", "opinion": "매수/중립/매도", "rating": 3, "date": "${new Date().toISOString().slice(0,10)}" }\n]`;
 
-    const result = await callClaude(systemPrompt, userPrompt, 4000);
-    const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const reports = JSON.parse(cleaned);
+    const result = await callClaude(systemPrompt, userPrompt, 6000);
+    let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    
+    // JSON 파싱 안전 처리 — 레포트 텍스트에 따옴표/특수문자가 많아서 깨지기 쉬움
+    let reports;
+    try {
+      reports = JSON.parse(cleaned);
+    } catch (parseErr) {
+      // 복구 시도 1: 제어 문자 제거
+      try {
+        cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, ' ').replace(/\\/g, '\\\\').replace(/(?<!\\)"/g, (m, offset) => {
+          // JSON 구조적 따옴표는 유지, 텍스트 내 따옴표만 이스케이프
+          return m;
+        });
+        reports = JSON.parse(cleaned);
+      } catch (e2) {
+        // 복구 시도 2: 배열 시작~끝만 추출
+        try {
+          const arrStart = cleaned.indexOf('[');
+          const arrEnd = cleaned.lastIndexOf(']');
+          if (arrStart >= 0 && arrEnd > arrStart) {
+            reports = JSON.parse(cleaned.slice(arrStart, arrEnd + 1));
+          } else {
+            throw new Error('No JSON array found');
+          }
+        } catch (e3) {
+          return res.status(500).json({ error: 'JSON 파싱 실패. Claude 응답이 유효한 JSON이 아닙니다.', raw: cleaned.slice(0, 500) });
+        }
+      }
+    }
 
     return res.status(200).json({ success: true, reports, count: reports.length });
   } catch (e) {
