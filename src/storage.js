@@ -69,36 +69,46 @@ window.getLatestDigest = getLatestDigest
 window.getTodayDigests = getTodayDigests
 
 // ═══ Auto Fill (자동입력) ═══
-export async function autoFillJournal() {
-  try { const res = await fetch('/api/auto-fill-journal'); return await res.json() } catch (e) { return { success: false, error: e.message } }
+// 공통 API 호출 + 상세 에러 처리
+async function callApi(url) {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 55000) // 55초 타임아웃
+    const res = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeout)
+    if (!res.ok) {
+      let errBody = ''
+      try { errBody = JSON.stringify(await res.json()) } catch (e) { errBody = await res.text().catch(() => '') }
+      return { success: false, error: `HTTP ${res.status}: ${errBody.slice(0, 200)}` }
+    }
+    return await res.json()
+  } catch (e) {
+    if (e.name === 'AbortError') return { success: false, error: 'API 타임아웃 (55초 초과). Vercel Hobby 플랜 제한입니다.' }
+    return { success: false, error: `네트워크 오류: ${e.message}` }
+  }
 }
-export async function autoFillScrap() {
-  try { const res = await fetch('/api/auto-fill-scrap'); return await res.json() } catch (e) { return { success: false, error: e.message } }
-}
-export async function autoFillReport() {
-  try { const res = await fetch('/api/auto-fill-report'); return await res.json() } catch (e) { return { success: false, error: e.message } }
-}
+
+export async function autoFillJournal() { return callApi('/api/auto-fill-journal') }
+export async function autoFillScrap() { return callApi('/api/auto-fill-scrap') }
+export async function autoFillReport() { return callApi('/api/auto-fill-report') }
 export async function triggerGenerateOutlook() {
   try {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { success: false, error: 'Not logged in' }
-    const res = await fetch(`/api/generate-outlook?user_id=${user.id}`)
-    return await res.json()
+    return callApi(`/api/generate-outlook?user_id=${user.id}`)
+  } catch (e) { return { success: false, error: e.message } }
+}
+export async function triggerStockAnalysis() {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Not logged in' }
+    return callApi(`/api/generate-stock-analysis?user_id=${user.id}`)
   } catch (e) { return { success: false, error: e.message } }
 }
 window.autoFillJournal = autoFillJournal
 window.autoFillScrap = autoFillScrap
 window.autoFillReport = autoFillReport
 window.triggerGenerateOutlook = triggerGenerateOutlook
-
-export async function triggerStockAnalysis() {
-  try {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return { success: false, error: 'Not logged in' }
-    const res = await fetch(`/api/generate-stock-analysis?user_id=${user.id}`)
-    return await res.json()
-  } catch (e) { return { success: false, error: e.message } }
-}
 window.triggerStockAnalysis = triggerStockAnalysis
 
 // ═══ Outlook ═══
