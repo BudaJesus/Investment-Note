@@ -179,6 +179,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
   const [autoData, setAutoData] = useState(null);
   const [page, setPage] = useState("dashboard");
   const [showDataMgr, setShowDataMgr] = useState(false);
+  const [collectProgress, setCollectProgress] = useState(null); // null | { step, total, message }
   const [storageAlert, setStorageAlert] = useState(null);
   const [selectedDate, setSelectedDate] = useState(toKey(new Date()));
   const [activeTab, setActiveTab] = useState("market");
@@ -338,20 +339,42 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
               } catch (e) { showToast("네트워크 오류"); }
             }} title="시장 데이터 수집 (증시/채권/환율/원자재)">수치 갱신</button>
             <button style={{ ...S.logoutBtn, color: "#7C3AED", borderColor: "rgba(124,58,237,0.3)", fontWeight: 600 }} onClick={async () => {
-              showToast("📡 텔레그램 채널 수집 중...");
+              setCollectProgress({ step: 1, total: 4, message: "📡 Yahoo Finance 수치 수집 중..." });
               try {
+                setTimeout(() => setCollectProgress({ step: 2, total: 4, message: "📡 텔레그램 채널 스크래핑 중..." }), 2000);
+                setTimeout(() => setCollectProgress({ step: 3, total: 4, message: "📰 기사 본문 30개 수집 중..." }), 8000);
+                setTimeout(() => setCollectProgress({ step: 4, total: 4, message: "📄 레포트 수집 중..." }), 15000);
                 if (window.triggerTelegramDigest) {
                   const result = await window.triggerTelegramDigest();
-                  if (result?.success) showToast(`✅ 메시지 ${result.stats?.total_messages || 0}개, 기사 ${result.stats?.total_articles || 0}개 수집 완료!`);
-                  else showToast("수집 완료 (새 데이터 없음)");
-                } else showToast("Supabase 연결 필요");
-              } catch (e) { showToast("네트워크 오류"); }
+                  if (result?.success) {
+                    setCollectProgress({ step: 4, total: 4, message: `✅ 완료! 메시지 ${result.stats?.total_messages || 0}개, 기사 ${result.stats?.total_articles || 0}개, 레포트 ${result.stats?.total_reports || 0}개` });
+                    setTimeout(() => setCollectProgress(null), 3000);
+                  } else {
+                    setCollectProgress({ step: 4, total: 4, message: "수집 완료 (새 데이터 없음)" });
+                    setTimeout(() => setCollectProgress(null), 2000);
+                  }
+                } else { setCollectProgress(null); showToast("Supabase 연결 필요"); }
+              } catch (e) { setCollectProgress(null); showToast("네트워크 오류"); }
             }} title="텔레그램 채널 메시지+기사+레포트 수집">📡 정보 수집</button>
           </>)}
           {onLogout && <button style={S.logoutBtn} onClick={onLogout} title={userEmail}>로그아웃</button>}
           <button style={{ ...S.logoutBtn, fontSize: 10 }} onClick={() => setShowDataMgr(true)} title="데이터 관리">{Icons.layers}</button>
         </div>
       </header>
+
+      {/* 정보 수집 진행상황 플로팅 박스 */}
+      {collectProgress && (
+        <div style={{ position: "fixed", bottom: 20, right: 20, background: "#1A1D23", color: "#fff", borderRadius: 10, padding: "12px 16px", zIndex: 9999, minWidth: 220, boxShadow: "0 4px 20px rgba(0,0,0,0.3)", fontSize: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontWeight: 700 }}>📡 정보 수집</span>
+            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{collectProgress.step}/{collectProgress.total}</span>
+          </div>
+          <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 2, overflow: "hidden", marginBottom: 6 }}>
+            <div style={{ height: "100%", width: `${(collectProgress.step / collectProgress.total) * 100}%`, background: collectProgress.message.includes("✅") ? C.up : "#7C3AED", borderRadius: 2, transition: "width 0.5s ease" }} />
+          </div>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", margin: 0 }}>{collectProgress.message}</p>
+        </div>
+      )}
 
       {storageAlert && (
         <div style={{ padding: "8px 14px", borderRadius: 8, marginTop: 8, fontSize: 11, fontWeight: 600, textAlign: "center",
@@ -430,7 +453,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
           <button style={S.quickBtn} onClick={copyPrev}>{Icons.copy} 전일 데이터 복사</button>
           <button style={S.quickBtn} onClick={() => setSelectedDate(toKey(new Date()))}>{Icons.calendar} 오늘로 이동</button>
           <button style={{ ...S.quickBtn, background: "#7C3AED", color: "#fff", borderColor: "#7C3AED", fontWeight: 700, padding: "6px 14px" }} onClick={async () => {
-            showToast("✨ AI 자동입력 중...");
+            showToast("✨ AI 자동입력 중... (30초~1분 소요)");
             try {
               if (window.autoFillJournal) {
                 const result = await window.autoFillJournal();
@@ -438,7 +461,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                   const d = result.data;
                   updateEntry((prev) => {
                     const next = { ...prev };
-                    // marketNotes (빈 칸만)
+                    // ── marketNotes (국가별 증시 reason+outlook) ──
                     if (d.marketNotes) {
                       const mn = { ...(next.marketNotes || {}) };
                       for (const [country, vals] of Object.entries(d.marketNotes)) {
@@ -448,22 +471,62 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                       }
                       next.marketNotes = mn;
                     }
+                    // ── bondOutlook + 개별 채권 reason ──
                     if (!next.bondOutlook && d.bondOutlook) next.bondOutlook = d.bondOutlook;
+                    if (d.bondReasons) {
+                      const bonds = [...(next.bonds || [])];
+                      for (const [id, reason] of Object.entries(d.bondReasons)) {
+                        const idx = bonds.findIndex(b => b.id === id);
+                        if (idx >= 0 && !bonds[idx].reason && reason) bonds[idx] = { ...bonds[idx], reason };
+                      }
+                      next.bonds = bonds;
+                    }
+                    // ── fxOutlook + 개별 환율 reason ──
                     if (!next.fxOutlook && d.fxOutlook) next.fxOutlook = d.fxOutlook;
+                    if (d.fxReasons) {
+                      const fx = [...(next.fx || [])];
+                      for (const [id, reason] of Object.entries(d.fxReasons)) {
+                        const idx = fx.findIndex(f => f.id === id);
+                        if (idx >= 0) {
+                          if (!fx[idx].reason && reason) fx[idx] = { ...fx[idx], reason };
+                        }
+                      }
+                      next.fx = fx;
+                    }
+                    // ── commodityOutlook + 개별 원자재 reason ──
                     if (!next.commodityOutlook && d.commodityOutlook) next.commodityOutlook = d.commodityOutlook;
+                    if (d.commodityReasons) {
+                      const comms = [...(next.commodities || [])];
+                      for (const [id, reason] of Object.entries(d.commodityReasons)) {
+                        const idx = comms.findIndex(c => c.id === id);
+                        if (idx >= 0 && !comms[idx].reason && reason) comms[idx] = { ...comms[idx], reason };
+                      }
+                      next.commodities = comms;
+                    }
+                    // ── memo ──
                     if (!next.memo && d.memo) next.memo = d.memo;
-                    // sectors (빈 배열이면)
-                    if ((!next.sectors || next.sectors.length === 0) && d.sectors?.length > 0) next.sectors = d.sectors;
-                    // stocks (빈 배열이면)
-                    if ((!next.stocks || next.stocks.length === 0) && d.stocks?.length > 0) next.stocks = d.stocks;
+                    // ── sectors (기존에 이름이 비어있는 기본값이면 교체) ──
+                    if (d.sectors?.length > 0) {
+                      const hasContent = (next.sectors || []).some(s => s.name && s.name.trim());
+                      if (!hasContent) {
+                        next.sectors = d.sectors.map((s, i) => ({ id: Date.now() + i, ...s }));
+                      }
+                    }
+                    // ── stocks (기존에 이름이 비어있는 기본값이면 교체) ──
+                    if (d.stocks?.length > 0) {
+                      const hasContent = (next.stocks || []).some(s => s.name && s.name.trim());
+                      if (!hasContent) {
+                        next.stocks = d.stocks.map((s, i) => ({ id: Date.now() + 100 + i, ...s }));
+                      }
+                    }
                     return next;
                   });
-                  showToast("✅ 자동입력 완료! 빈 칸이 채워졌습니다.");
+                  showToast("✅ 자동입력 완료! 모든 카테고리의 빈 칸이 채워졌습니다.");
                 } else {
-                  showToast("자동입력 실패: " + (result?.error || "수집된 데이터가 없습니다. 먼저 '📡 정보 수집' 버튼을 눌러주세요."));
+                  showToast("자동입력 실패: " + (result?.error || "수집된 데이터가 없습니다. 먼저 헤더의 '📡 정보 수집' 버튼을 눌러주세요."));
                 }
               } else showToast("Supabase 연결 필요");
-            } catch (e) { showToast("네트워크 오류"); }
+            } catch (e) { showToast("자동입력 오류: " + e.message); }
           }}>✨ 자동입력</button>
         </div>
         <nav style={S.tabs}>
@@ -3067,6 +3130,7 @@ function PortfolioPage({ showToast, autoData }) {
   const [outlook, setOutlook] = useState(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [renderError, setRenderError] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -3076,7 +3140,7 @@ function PortfolioPage({ showToast, autoData }) {
           const data = await window.getLatestOutlook();
           if (data) setOutlook(data);
         }
-      } catch (e) {}
+      } catch (e) { setRenderError(e.message); }
       setLoading(false);
     })();
   }, []);
@@ -3105,6 +3169,17 @@ function PortfolioPage({ showToast, autoData }) {
   const sa = outlook?.stock_analysis || {};
   const tags = outlook?.source_tags || {};
 
+  // Safe rendering helper — prevent white screen on bad data
+  const safe = (fn, fallback = null) => { try { return fn(); } catch (e) { return fallback; } };
+
+  if (renderError) return (
+    <div style={{ padding: "40px 20px", textAlign: "center" }}>
+      <p style={{ fontSize: 14, fontWeight: 600, color: C.down, marginBottom: 8 }}>포트폴리오 데이터 로딩 오류</p>
+      <p style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>{renderError}</p>
+      <button style={{ ...S.scrapAddBtn, maxWidth: 200, margin: "0 auto" }} onClick={() => { setRenderError(null); setOutlook(null); }}>다시 시도</button>
+    </div>
+  );
+
   const SourceTag = ({ types }) => (
     <span style={{ display: "inline-flex", gap: 2, marginLeft: 4 }}>
       {types?.includes("tg") && <span style={{ background: "#0891B2", color: "#fff", padding: "1px 4px", borderRadius: 2, fontSize: 8, fontWeight: 700 }}>📡 TG</span>}
@@ -3114,10 +3189,12 @@ function PortfolioPage({ showToast, autoData }) {
   );
 
   const PegBadge = ({ peg }) => {
-    const color = peg < 1 ? C.up : peg < 1.5 ? "#F59E0B" : C.down;
-    const bg = peg < 1 ? C.upBg : peg < 1.5 ? "rgba(245,158,11,0.1)" : C.downBg;
-    const label = peg < 0.5 ? "극저평가" : peg < 1 ? "저평가" : peg < 1.5 ? "적정" : "고평가";
-    return <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: bg, color, marginLeft: 4 }}>PEG {peg.toFixed(2)} · {label}</span>;
+    const p = parseFloat(peg);
+    if (isNaN(p)) return null;
+    const color = p < 1 ? C.up : p < 1.5 ? "#F59E0B" : C.down;
+    const bg = p < 1 ? C.upBg : p < 1.5 ? "rgba(245,158,11,0.1)" : C.downBg;
+    const label = p < 0.5 ? "극저평가" : p < 1 ? "저평가" : p < 1.5 ? "적정" : "고평가";
+    return <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: bg, color, marginLeft: 4 }}>PEG {p.toFixed(2)} · {label}</span>;
   };
 
   return (
@@ -3168,20 +3245,24 @@ function PortfolioPage({ showToast, autoData }) {
       {!loading && outlook && subTab === "market" && (
         <div>
           {/* 매크로 전망 */}
-          {mv.macro && Object.entries(mv.macro).map(([key, text]) => {
+          {mv.macro && Object.entries(mv.macro).map(([key, val]) => {
             const labels = { global: "🔴 글로벌 매크로", us: "🇺🇸 미국", kr: "🇰🇷 한국", jp: "🇯🇵 일본", cn: "🇨🇳 중국", tw: "🇹🇼 대만" };
+            // val can be string or {text, sources}
+            const textContent = typeof val === "string" ? val : val?.text || "";
+            const sources = typeof val === "object" && val?.sources ? val.sources : tags[key + "_macro"] || ["ai"];
+            if (!textContent) return null;
             return (
               <div key={key} style={{ ...S.card, marginBottom: 8 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center" }}>
-                  {labels[key] || key} <SourceTag types={tags[key + "_macro"] || ["ai"]} />
+                  {labels[key] || key} <SourceTag types={sources} />
                 </div>
-                <p style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{text}</p>
+                <p style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{textContent}</p>
               </div>
             );
           })}
 
           {/* 환율 */}
-          {mv.fx && <div style={{ ...S.card, marginBottom: 8 }}><div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💱 환율 전망 <SourceTag types={tags.fx || ["ai"]} /></div><p style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{mv.fx}</p></div>}
+          {mv.fx && <div style={{ ...S.card, marginBottom: 8 }}><div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💱 환율 전망 <SourceTag types={(typeof mv.fx === "object" && mv.fx?.sources) ? mv.fx.sources : tags.fx || ["ai"]} /></div><p style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{typeof mv.fx === "string" ? mv.fx : mv.fx?.text || ""}</p></div>}
 
           {/* 투자 테마 */}
           {mv.themes?.length > 0 && (
@@ -3260,6 +3341,16 @@ function PortfolioPage({ showToast, autoData }) {
 
       {!loading && outlook && subTab === "stock" && (
         <div>
+          {/* 종목분석 데이터가 없을 때 */}
+          {(!sa.peg_table || sa.peg_table.length === 0) && (!sa.sectors || sa.sectors.length === 0) && (!sa.overseas || sa.overseas.length === 0) && (
+            <div style={{ textAlign: "center", padding: "40px 0" }}>
+              <p style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 6 }}>종목분석 데이터가 아직 없습니다</p>
+              <p style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>위 "✨ 자동입력" 버튼을 눌러 시장전망과 함께 종목분석도 생성하세요.</p>
+              <button style={{ ...S.scrapAddBtn, maxWidth: 280, margin: "0 auto", background: "#7C3AED", borderColor: "#7C3AED" }} onClick={handleGenerate} disabled={generating}>
+                {generating ? "⏳ 자동입력 중..." : "✨ 종목분석 생성하기"}
+              </button>
+            </div>
+          )}
           {/* PEG 테이블 */}
           {sa.peg_table?.length > 0 && (
             <div style={{ ...S.card, marginBottom: 10, overflowX: "auto" }}>
