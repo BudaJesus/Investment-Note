@@ -108,24 +108,58 @@ async function scrapeArticle(url) {
   } catch (e) { return null; }
 }
 
-// ─── PDF 레포트 텍스트 추출 (Bot API) ───
+// ─── PDF 레포트 텍스트 추출 (웹 스크래핑) ───
 async function fetchReportTexts() {
-  if (!BOT_TOKEN) return [];
   const reports = [];
   try {
-    const res = await fetch(`https://t.me/s/${REPORT_CHANNEL}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!res.ok) return [];
+    const res = await fetch(`https://t.me/s/${REPORT_CHANNEL}`, { 
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml',
+      } 
+    });
+    if (!res.ok) { console.error('Report channel fetch failed:', res.status); return []; }
     const html = await res.text();
-    const fileRegex = /data-post="report_figure_by_offset\/(\d+)"[\s\S]*?<div class="tgme_widget_message_document_title[^"]*"[^>]*>([^<]+)/g;
-    let fMatch;
-    while ((fMatch = fileRegex.exec(html)) !== null) {
-      const fileName = fMatch[2].trim();
-      if (fileName.toLowerCase().includes('.pdf')) {
-        reports.push({ msgId: parseInt(fMatch[1]), fileName, channel: REPORT_CHANNEL, text: `[레포트] ${fileName}` });
+
+    // 메시지 블록 단위로 분할 (여러 패턴 시도)
+    const blocks = html.split(/tgme_widget_message_wrap|js-widget_message_wrap/);
+    
+    for (const block of blocks.slice(1)) { // 첫 블록은 헤더
+      const idMatch = block.match(/data-post="[^\/]*\/(\d+)"/);
+      const msgId = idMatch ? parseInt(idMatch[1]) : 0;
+      
+      // 패턴 1: document_title 클래스
+      const titleMatch = block.match(/document_title[^>]*>([^<]+)/);
+      // 패턴 2: document 태그 내 파일 설명
+      const docMatch = block.match(/document_extra[^>]*>([^<]+)/);
+      // 패턴 3: 메시지 텍스트
+      const textMatch = block.match(/message_text[^>]*>([\s\S]*?)<\/div>/);
+      // 패턴 4: 파일 크기 정보
+      const sizeMatch = block.match(/document_size[^>]*>([^<]+)/);
+
+      const fileName = titleMatch ? titleMatch[1].trim() : '';
+      const docInfo = docMatch ? docMatch[1].trim() : '';
+      const msgText = textMatch ? textMatch[1].replace(/<br\s*\/?>/g, '\n').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').trim() : '';
+      const fileSize = sizeMatch ? sizeMatch[1].trim() : '';
+
+      // 파일이 있거나 리포트 관련 텍스트가 있으면 수집
+      if (fileName || (msgText && (msgText.includes('.pdf') || msgText.includes('리포트') || msgText.includes('보고서')))) {
+        const displayName = fileName || (msgText.slice(0, 60) + '...');
+        reports.push({
+          msgId,
+          fileName: displayName,
+          fileSize,
+          channel: REPORT_CHANNEL,
+          text: `[레포트: ${displayName}]${fileSize ? ` (${fileSize})` : ''}\n${msgText}`.slice(0, 3000),
+          extractedAt: new Date().toISOString(),
+        });
       }
     }
-  } catch (e) {}
-  return reports.slice(-10);
+    
+    console.log(`Report channel: ${blocks.length - 1} messages scanned, ${reports.length} reports found`);
+  } catch (e) { console.error('Report fetch error:', e.message); }
+  return reports;
 }
 
 // ═══ API Handler ═══
