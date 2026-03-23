@@ -622,11 +622,11 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
       {viewMode === "monthly" && <MonthlyView entries={entries} viewYear={viewYear} viewMonth={viewMonth} setViewYear={setViewYear} setViewMonth={setViewMonth} goToDate={goToDate} />}
       </>)}
 
-      {page === "scrap" && <ScrapPage scraps={scraps} setScraps={setScraps} showToast={showToast} showError={showError} />}
+      {page === "scrap" && <ScrapPage scraps={scraps} setScraps={setScraps} showToast={showToast} showError={showError} saveAll={saveAll} saving={saving} />}
 
-      {page === "indicators" && <IndicatorsPage indicators={indicators} setIndicators={setIndicators} showToast={showToast} autoData={autoData} setAutoData={setAutoData} userEmail={userEmail} />}
+      {page === "indicators" && <IndicatorsPage indicators={indicators} setIndicators={setIndicators} showToast={showToast} autoData={autoData} setAutoData={setAutoData} userEmail={userEmail} saveAll={saveAll} saving={saving} />}
 
-      {page === "reports" && <ReportArchivePage reports={reports} setReports={setReports} customSectors={customSectors} setCustomSectors={setCustomSectors} showToast={showToast} showError={showError} />}
+      {page === "reports" && <ReportArchivePage reports={reports} setReports={setReports} customSectors={customSectors} setCustomSectors={setCustomSectors} showToast={showToast} showError={showError} saveAll={saveAll} saving={saving} />}
 
       {page === "portfolio" && <PortfolioPage showToast={showToast} showError={showError} autoData={autoData} />}
 
@@ -1870,7 +1870,7 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
 }
 
 /* ═══ SCRAP PAGE ═══ */
-function ScrapPage({ scraps, setScraps, showToast, showError }) {
+function ScrapPage({ scraps, setScraps, showToast, showError, saveAll, saving }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCat, setFilterCat] = useState("all");
   const [filterDate, setFilterDate] = useState("");
@@ -2087,10 +2087,14 @@ function ScrapPage({ scraps, setScraps, showToast, showError }) {
           );
         })}
       </div>
+      <div style={{ position: "sticky", bottom: 0, padding: "12px 0", background: `linear-gradient(transparent, ${C.bg} 20%)`, zIndex: 5 }}>
+        <button style={{ ...S.saveBtn, width: "100%", justifyContent: "center", padding: "12px 0", borderRadius: 6, fontSize: 13, opacity: saving ? 0.6 : 1 }} onClick={saveAll} disabled={saving}>
+          {Icons.save}<span>{saving ? "저장 중..." : "신문 스크랩 저장"}</span>
+        </button>
+      </div>
     </div>
   );
 }
-
 /* ═══ INDICATORS PAGE ═══ */
 const INDICATOR_DEFS = [
   { cat: "금리", items: [
@@ -2186,7 +2190,7 @@ function MiniChart({ data, color, width = 160, height = 48 }) {
   );
 }
 
-function IndicatorsPage({ indicators, setIndicators, showToast, autoData, setAutoData, userEmail }) {
+function IndicatorsPage({ indicators, setIndicators, showToast, autoData, setAutoData, userEmail, saveAll, saving }) {
   const [filterCat, setFilterCat] = useState("all");
   const [filterCountry, setFilterCountry] = useState("all");
   const [viewBy, setViewBy] = useState("cat");
@@ -2630,12 +2634,17 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData, setAut
           <p style={{ fontSize: 8, color: C.textDim, margin: "6px 0 0" }}>첫 수집 시 28개 지표 3년치 · 이후 cron 자동 수집 (매일 2회)</p>
         </div>
       )}
+      <div style={{ position: "sticky", bottom: 0, padding: "12px 0", background: `linear-gradient(transparent, ${C.bg} 20%)`, zIndex: 5 }}>
+        <button style={{ ...S.saveBtn, width: "100%", justifyContent: "center", padding: "12px 0", borderRadius: 6, fontSize: 13, opacity: saving ? 0.6 : 1 }} onClick={saveAll} disabled={saving}>
+          {Icons.save}<span>{saving ? "저장 중..." : "경제 지표 저장"}</span>
+        </button>
+      </div>
     </div>
   );
 }
 
 /* ═══ REPORT ARCHIVE PAGE ═══ */
-function ReportArchivePage({ reports, setReports, customSectors, setCustomSectors, showToast, showError }) {
+function ReportArchivePage({ reports, setReports, customSectors, setCustomSectors, showToast, showError, saveAll, saving }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterSource, setFilterSource] = useState("all");
   const [filterSector, setFilterSector] = useState("all");
@@ -3200,6 +3209,11 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
             </div>
           )}
         </div>
+      </div>
+      <div style={{ position: "sticky", bottom: 0, padding: "12px 0", background: `linear-gradient(transparent, ${C.bg} 20%)`, zIndex: 5 }}>
+        <button style={{ ...S.saveBtn, width: "100%", justifyContent: "center", padding: "12px 0", borderRadius: 6, fontSize: 13, opacity: saving ? 0.6 : 1 }} onClick={saveAll} disabled={saving}>
+          {Icons.save}<span>{saving ? "저장 중..." : "레포트 저장"}</span>
+        </button>
       </div>
     </div>
   );
