@@ -249,5 +249,5 @@ export default async function handler(req, res) {
     }
 
     return res.status(200).json({ success: true, date: dateKey, version, hasMarketView: !!marketView, step: 'market_view_done' });
-  } catch (e) { return res.status(500).json({ error: e.message }); }
+  } catch (e) { return res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 300) }); }
 }

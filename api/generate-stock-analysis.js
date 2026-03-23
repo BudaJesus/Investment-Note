@@ -254,6 +254,6 @@ ${reports.join('\n---\n').slice(0, 8000)}
     return res.status(200).json({ success: true, sectors: stockAnalysis.sectors?.length || 0, overseas: stockAnalysis.overseas?.length || 0 });
   } catch (e) {
     console.error('generate-stock-analysis error:', e);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 300) });
   }
 }

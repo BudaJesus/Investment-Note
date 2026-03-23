@@ -37,19 +37,21 @@ export default async function handler(req, res) {
     }
 
     const content = allReports.slice(0, 8).map(r => 
-      `[${r.date}][${r.fileName}]\n${r.text.slice(0, 1500)}`
-    ).join('\n===\n').slice(0, 15000);
+      `[${r.date}][${r.fileName}]\n${r.text.slice(0, 2500)}`
+    ).join('\n===\n').slice(0, 25000);
 
     const systemPrompt = `증권사 리서치 편집자. 레포트를 정리합니다.
-규칙: 요약 아님. 수치/목표가/투자의견 빠짐없이 정리. summary 안에 큰따옴표 금지(작은따옴표 사용).
+규칙: 요약 아님. 수치/목표가/투자의견/데이터/근거 빠짐없이 정리.
+summary는 최대한 상세하게: 핵심논점, 실적 수치, 밸류에이션, 투자의견 근거, 리스크, 결론 전부 포함. 15~30문장.
+summary 안에 큰따옴표 금지(작은따옴표 사용).
 섹터id: semi/battery/bio/auto/it/finance/energy/consumer/industrial/realestate/macro/other
 증권사id: samsung/mirae/kb/nh/hana/shinhan/kiwoom/daishin/hanwha/meritz/im/other
 JSON 배열만 출력.`;
 
-    const userPrompt = `레포트 ${allReports.length}개:\n\n${content}\n\n[{ "title":"", "source":"증권사id", "sector":"섹터id", "analyst":"", "summary":"정리(10문장+)", "stocks":"종목(쉼표)", "target_price":"", "opinion":"매수/중립/매도", "rating":3, "date":"${new Date().toISOString().slice(0,10)}" }]`;
+    const userPrompt = `레포트 ${allReports.length}개:\n\n${content}\n\n[{ "title":"", "source":"증권사id", "sector":"섹터id", "analyst":"", "summary":"빠짐없이 상세 정리(15~30문장). 수치/근거/결론 전부.", "stocks":"종목(쉼표)", "target_price":"", "opinion":"매수/중립/매도", "rating":3, "date":"${new Date().toISOString().slice(0,10)}" }]`;
 
     const t2 = Date.now();
-    const result = await callClaude(systemPrompt, userPrompt, 4000);
+    const result = await callClaude(systemPrompt, userPrompt, 8000);
     const t3 = Date.now();
 
     let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
