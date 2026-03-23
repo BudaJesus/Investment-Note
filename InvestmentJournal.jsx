@@ -378,6 +378,18 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
           {Icons.file}<span>레포트</span>
           {reports.length > 0 && <span style={S.scrapCount}>{reports.length}</span>}
         </button>
+        <button style={{ ...S.pageToggleBtn, ...(page === "portfolio" ? S.pageToggleBtnActive : {}), color: page === "portfolio" ? "#7C3AED" : undefined, borderBottomColor: page === "portfolio" ? "#7C3AED" : undefined }} onClick={() => setPage("portfolio")}>
+          <span>💼</span><span>포트폴리오</span>
+          <span style={{ background: "#7C3AED", color: "#fff", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 3, marginLeft: 2 }}>NEW</span>
+        </button>
+        <button style={{ ...S.pageToggleBtn, ...(page === "forecast" ? S.pageToggleBtnActive : {}), color: page === "forecast" ? "#D946EF" : undefined, borderBottomColor: page === "forecast" ? "#D946EF" : undefined }} onClick={() => setPage("forecast")}>
+          <span>🎯</span><span>예측추적</span>
+          <span style={{ background: "#D946EF", color: "#fff", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 3, marginLeft: 2 }}>NEW</span>
+        </button>
+        <button style={{ ...S.pageToggleBtn, ...(page === "channels" ? S.pageToggleBtnActive : {}), color: page === "channels" ? "#0891B2" : undefined, borderBottomColor: page === "channels" ? "#0891B2" : undefined }} onClick={() => setPage("channels")}>
+          <span>📡</span><span>채널관리</span>
+          <span style={{ background: "#0891B2", color: "#fff", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 3, marginLeft: 2 }}>NEW</span>
+        </button>
       </div>
 
       {page === "dashboard" && <DashboardPage setPage={setPage} entries={entries} scraps={scraps} reports={reports} indicators={indicators} routineLinks={routineLinks} setRoutineLinks={setRoutineLinks} saveAll={saveAll} autoData={autoData} setAutoData={setAutoData} />}
@@ -407,6 +419,24 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
         <div style={S.quickActions}>
           <button style={S.quickBtn} onClick={copyPrev}>{Icons.copy} 전일 데이터 복사</button>
           <button style={S.quickBtn} onClick={() => setSelectedDate(toKey(new Date()))}>{Icons.calendar} 오늘로 이동</button>
+          <button style={{ ...S.quickBtn, color: "#7C3AED", borderColor: "rgba(124,58,237,0.3)", fontWeight: 600 }} onClick={async () => {
+            showToast("📡 텔레그램 수집 중...");
+            try {
+              if (window.triggerTelegramDigest) {
+                const result = await window.triggerTelegramDigest();
+                if (result?.success) {
+                  showToast(`✅ ${result.stats?.total_messages || 0}개 메시지 수집 완료!`);
+                } else {
+                  showToast("수집 완료 (새 메시지 없음)");
+                }
+              } else {
+                showToast("Supabase 연결 필요");
+              }
+            } catch (e) { showToast("네트워크 오류"); }
+          }}>📡 최신 데이터 가져오기</button>
+        </div>
+        <div style={{ background: "rgba(124,58,237,0.04)", border: "1px solid rgba(124,58,237,0.12)", borderRadius: 5, padding: "5px 10px", marginBottom: 6, fontSize: 9, color: C.textDim, display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: "#7C3AED", fontWeight: 600 }}>📡</span>텔레그램 채널에서 새 메시지·기사·리포트를 수집하고, AI가 변동이유·전망을 자동채움합니다. cron: 매일 09:00 / 19:30 KST
         </div>
         <nav style={S.tabs}>
           {CATEGORIES.map((cat) => (
@@ -443,6 +473,12 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
       {page === "indicators" && <IndicatorsPage indicators={indicators} setIndicators={setIndicators} showToast={showToast} autoData={autoData} setAutoData={setAutoData} userEmail={userEmail} />}
 
       {page === "reports" && <ReportArchivePage reports={reports} setReports={setReports} customSectors={customSectors} setCustomSectors={setCustomSectors} showToast={showToast} />}
+
+      {page === "portfolio" && <PortfolioPage showToast={showToast} autoData={autoData} />}
+
+      {page === "forecast" && <ForecastPage showToast={showToast} />}
+
+      {page === "channels" && <ChannelsPage showToast={showToast} />}
 
       <footer style={S.footer}><span>투자 노트</span><span style={S.footerDot} /><span>저장 버튼으로 데이터 보관</span></footer>
     </div>
@@ -1428,6 +1464,8 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
           <div style={H.heroStat}><span style={H.heroStatNum}>{scraps.length}</span><span style={H.heroStatLabel}>스크랩</span></div>
           <div style={H.heroStat}><span style={H.heroStatNum}>{reports.length}</span><span style={H.heroStatLabel}>레포트</span></div>
           <div style={H.heroStat}><span style={H.heroStatNum}>{indCount}</span><span style={H.heroStatLabel}>지표</span></div>
+          <div style={{ ...H.heroStat, borderColor: "rgba(124,58,237,0.2)" }}><span style={{ ...H.heroStatNum, color: "#C4B5FD" }}>—</span><span style={{ ...H.heroStatLabel, color: "rgba(196,181,253,0.6)" }}>적중률</span></div>
+          <div style={{ ...H.heroStat, borderColor: "rgba(124,58,237,0.2)" }}><span style={{ ...H.heroStatNum, color: "#C4B5FD" }}>—</span><span style={{ ...H.heroStatLabel, color: "rgba(196,181,253,0.6)" }}>채널</span></div>
         </div>
       </div>
 
@@ -1629,6 +1667,17 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
           <div style={H.navCard("#16A34A")} onClick={() => setPage("indicators")}><div style={H.navIcon("#16A34A")}>{Icons.activity}</div><div><span style={H.navTitle}>경제 지표</span><span style={H.navDesc}>{indCount}개</span></div></div>
         </div>
       )}
+
+      {/* AI TOOLS */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, cursor: "pointer" }}>
+        <p style={{ ...H.section, margin: 0, color: "#7C3AED" }}>🤖 AI TOOLS <span style={{ fontSize: 8, background: "#7C3AED", color: "#fff", padding: "1px 4px", borderRadius: 3, verticalAlign: "middle", marginLeft: 4 }}>NEW</span></p>
+      </div>
+      <div style={{ ...H.nav, marginBottom: 16 }}>
+        <div style={H.navCard("#7C3AED")} onClick={() => setPage("portfolio")}><div style={H.navIcon("#7C3AED")}>💼</div><div><span style={H.navTitle}>포트폴리오</span><span style={H.navDesc}>시장전망+종목분석</span></div></div>
+        <div style={H.navCard("#D946EF")} onClick={() => setPage("forecast")}><div style={H.navIcon("#D946EF")}>🎯</div><div><span style={H.navTitle}>예측 추적</span><span style={H.navDesc}>적중률 대시보드</span></div></div>
+        <div style={H.navCard("#0891B2")} onClick={() => setPage("channels")}><div style={H.navIcon("#0891B2")}>📡</div><div><span style={H.navTitle}>채널 관리</span><span style={H.navDesc}>텔레그램 수집</span></div></div>
+        <div style={H.navCard("#F59E0B")} onClick={() => setPage("indicators")}><div style={H.navIcon("#F59E0B")}>📊</div><div><span style={H.navTitle}>경제 지표</span><span style={H.navDesc}>자동수집 30개</span></div></div>
+      </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showRoutine ? 8 : 0, cursor: "pointer" }}>
         <p style={{ ...H.section, margin: 0 }} onClick={() => setShowRoutine(!showRoutine)}>오늘의 루틴 <span style={{ fontSize: 10, color: C.textDim }}>{showRoutine ? "\u25B2" : "\u25BC"}</span></p>
@@ -2945,6 +2994,551 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ═══ PORTFOLIO PAGE (시장전망 + 종목분석) ═══ */
+function PortfolioPage({ showToast, autoData }) {
+  const [subTab, setSubTab] = useState("market");
+  const [outlook, setOutlook] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        if (window.getLatestOutlook) {
+          const data = await window.getLatestOutlook();
+          if (data) setOutlook(data);
+        }
+      } catch (e) {}
+      setLoading(false);
+    })();
+  }, []);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    showToast("📡 텔레그램 수집 중...");
+    try {
+      if (window.triggerGenerateOutlook) {
+        const result = await window.triggerGenerateOutlook();
+        if (result?.success) {
+          showToast("✅ 포트폴리오 생성 완료!");
+          const data = await window.getLatestOutlook();
+          if (data) setOutlook(data);
+        } else {
+          showToast("생성 실패: " + (result?.error || "알 수 없는 오류"));
+        }
+      } else {
+        showToast("Supabase 연결 필요");
+      }
+    } catch (e) { showToast("네트워크 오류"); }
+    setGenerating(false);
+  };
+
+  const mv = outlook?.market_view || {};
+  const sa = outlook?.stock_analysis || {};
+  const tags = outlook?.source_tags || {};
+
+  const SourceTag = ({ types }) => (
+    <span style={{ display: "inline-flex", gap: 2, marginLeft: 4 }}>
+      {types?.includes("tg") && <span style={{ background: "#0891B2", color: "#fff", padding: "1px 4px", borderRadius: 2, fontSize: 8, fontWeight: 700 }}>📡 TG</span>}
+      {types?.includes("report") && <span style={{ background: "#FF5630", color: "#fff", padding: "1px 4px", borderRadius: 2, fontSize: 8, fontWeight: 700 }}>📄</span>}
+      {types?.includes("ai") && <span style={{ background: "#7C3AED", color: "#fff", padding: "1px 4px", borderRadius: 2, fontSize: 8, fontWeight: 700 }}>🤖 AI</span>}
+    </span>
+  );
+
+  const PegBadge = ({ peg }) => {
+    const color = peg < 1 ? C.up : peg < 1.5 ? "#F59E0B" : C.down;
+    const bg = peg < 1 ? C.upBg : peg < 1.5 ? "rgba(245,158,11,0.1)" : C.downBg;
+    const label = peg < 0.5 ? "극저평가" : peg < 1 ? "저평가" : peg < 1.5 ? "적정" : "고평가";
+    return <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: bg, color, marginLeft: 4 }}>PEG {peg.toFixed(2)} · {label}</span>;
+  };
+
+  return (
+    <div style={{ padding: "12px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>💼 포트폴리오</h2>
+          <p style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Top-Down 분석 → 자산배분 → 종목 추천 · {outlook?.date_key || "미생성"} {outlook?.version ? `v${outlook.version}` : ""}</p>
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button style={{ background: C.accent, color: "#fff", border: `1px solid ${C.accent}`, borderRadius: 4, padding: "6px 12px", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: C.sans, opacity: generating ? 0.6 : 1 }} onClick={handleGenerate} disabled={generating}>
+            {generating ? "⏳ 수집+분석 중..." : "🔄 데이터 수집 + AI 분석"}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 5, padding: "6px 10px", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 9, color: "#F59E0B", fontWeight: 600 }}>💡 수동 갱신</span>
+        <span style={{ fontSize: 9, color: C.textDim }}>비용 절감을 위해 자동 갱신하지 않습니다. 버튼 클릭 시 ①지수/지표 ②텔레그램 ③AI 분석 순서로 갱신.</span>
+      </div>
+
+      {/* 소스 범례 */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 10, padding: "6px 10px", background: C.bg, borderRadius: 5, fontSize: 9, color: C.textDim, flexWrap: "wrap" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ background: "#0891B2", color: "#fff", padding: "1px 4px", borderRadius: 2, fontSize: 8, fontWeight: 700 }}>📡 TG</span>텔레그램</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ background: "#FF5630", color: "#fff", padding: "1px 4px", borderRadius: 2, fontSize: 8, fontWeight: 700 }}>📄</span>리포트</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ background: "#7C3AED", color: "#fff", padding: "1px 4px", borderRadius: 2, fontSize: 8, fontWeight: 700 }}>🤖 AI</span>AI 보완</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ background: C.accent, color: "#fff", padding: "1px 4px", borderRadius: 2, fontSize: 8, fontWeight: 700 }}>📊</span>수치 데이터</span>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+        <button style={{ flex: 1, padding: 10, textAlign: "center", background: subTab === "market" ? C.accent : C.card, color: subTab === "market" ? "#fff" : C.text, border: `1px solid ${subTab === "market" ? C.accent : C.border}`, borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.sans }} onClick={() => setSubTab("market")}>📊 시장전망</button>
+        <button style={{ flex: 1, padding: 10, textAlign: "center", background: subTab === "stock" ? C.accent : C.card, color: subTab === "stock" ? "#fff" : C.text, border: `1px solid ${subTab === "stock" ? C.accent : C.border}`, borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.sans }} onClick={() => setSubTab("stock")}>📋 종목분석</button>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: "40px 0", color: C.textDim }}><div style={S.loadSpin} /><p style={{ fontSize: 12, marginTop: 8 }}>불러오는 중...</p></div>}
+
+      {!loading && !outlook && (
+        <div style={{ textAlign: "center", padding: "60px 0" }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 6 }}>아직 생성된 포트폴리오가 없습니다</p>
+          <p style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>위 "데이터 수집 + AI 분석" 버튼을 눌러 시장전망과 종목분석을 생성하세요.</p>
+          <button style={{ ...S.scrapAddBtn, maxWidth: 280, margin: "0 auto" }} onClick={handleGenerate} disabled={generating}>
+            {generating ? "⏳ 생성 중..." : "🔄 지금 생성하기"}
+          </button>
+        </div>
+      )}
+
+      {!loading && outlook && subTab === "market" && (
+        <div>
+          {/* 매크로 전망 */}
+          {mv.macro && Object.entries(mv.macro).map(([key, text]) => {
+            const labels = { global: "🔴 글로벌 매크로", us: "🇺🇸 미국", kr: "🇰🇷 한국", jp: "🇯🇵 일본", cn: "🇨🇳 중국", tw: "🇹🇼 대만" };
+            return (
+              <div key={key} style={{ ...S.card, marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center" }}>
+                  {labels[key] || key} <SourceTag types={tags[key + "_macro"] || ["ai"]} />
+                </div>
+                <p style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{text}</p>
+              </div>
+            );
+          })}
+
+          {/* 환율 */}
+          {mv.fx && <div style={{ ...S.card, marginBottom: 8 }}><div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💱 환율 전망 <SourceTag types={tags.fx || ["ai"]} /></div><p style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{mv.fx}</p></div>}
+
+          {/* 투자 테마 */}
+          {mv.themes?.length > 0 && (
+            <div style={{ ...S.card, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>⚡ 핵심 투자 테마</div>
+              {mv.themes.map((t, i) => (
+                <p key={i} style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, marginBottom: 4 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, marginRight: 4,
+                    background: t.tag === "bu" ? C.accentDim : t.tag === "be" ? "rgba(245,158,11,0.1)" : C.upBg,
+                    color: t.tag === "bu" ? C.accent : t.tag === "be" ? "#F59E0B" : C.up }}>{t.name}</span>
+                  {t.description}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* 자산배분 */}
+          {mv.allocation && (
+            <div style={{ ...S.card, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>💰 1억 포트폴리오 — 자산배분</div>
+              <div style={{ display: "flex", height: 28, borderRadius: 5, overflow: "hidden", marginBottom: 6 }}>
+                {Object.entries(mv.allocation).map(([k, v]) => {
+                  const colors = { domestic: "#2e86c1", overseas: "#8e44ad", gold: "#f1c40f", bonds: "#27ae60", cash: "#7f8c8d" };
+                  const labels = { domestic: "국내", overseas: "해외", gold: "금", bonds: "채권", cash: "현금" };
+                  return <div key={k} style={{ width: `${v.pct}%`, background: colors[k], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: k === "gold" ? "#000" : "#fff" }}>{labels[k]}{v.pct}%</div>;
+                })}
+              </div>
+              {Object.entries(mv.allocation).map(([k, v]) => (
+                <p key={k} style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 2 }}><b>{k}</b> {v.pct}% ({v.amount}만) — {v.detail}</p>
+              ))}
+            </div>
+          )}
+
+          {/* 종목 목록 요약 */}
+          {mv.domestic_stocks?.length > 0 && (
+            <div style={{ ...S.card, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🇰🇷 국내 종목</div>
+              {mv.domestic_stocks.map((s, i) => (
+                <p key={i} style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 2 }}><b>{s.name}</b> {s.weight_pct}%({s.amount}만) — {s.reason}</p>
+              ))}
+            </div>
+          )}
+          {mv.overseas_stocks?.length > 0 && (
+            <div style={{ ...S.card, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🇺🇸 해외 종목</div>
+              {mv.overseas_stocks.map((s, i) => (
+                <p key={i} style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 2 }}><b>{s.name}</b> {s.weight_pct}%({s.amount}만) — {s.reason}</p>
+              ))}
+            </div>
+          )}
+
+          {/* 시나리오 */}
+          {mv.scenarios?.length > 0 && (
+            <div style={{ ...S.card, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🔄 시나리오별 리밸런싱</div>
+              {mv.scenarios.map((s, i) => (
+                <p key={i} style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 4 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, marginRight: 4,
+                    background: s.tag === "bu" ? C.accentDim : s.tag === "be" ? "rgba(245,158,11,0.1)" : C.upBg,
+                    color: s.tag === "bu" ? C.accent : s.tag === "be" ? "#F59E0B" : C.up }}>{s.name}</span>
+                  {s.description}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* 스피킹 가이드 */}
+          {mv.speaking_guide && (
+            <div style={{ background: "rgba(124,58,237,0.04)", border: "1px solid rgba(124,58,237,0.15)", borderRadius: 6, padding: 14, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED", marginBottom: 6 }}>🎤 30초 스피킹 요약</div>
+              <p style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{mv.speaking_guide}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!loading && outlook && subTab === "stock" && (
+        <div>
+          {/* PEG 테이블 */}
+          {sa.peg_table?.length > 0 && (
+            <div style={{ ...S.card, marginBottom: 10, overflowX: "auto" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>📐 시장·섹터 PEG 총괄</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead><tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, color: C.textDim }}>구분</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 10, color: C.textDim }}>Fwd PER</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 10, color: C.textDim }}>EPS성장</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 10, color: C.textDim }}>PEG</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 10, color: C.textDim }}>판단</th>
+                </tr></thead>
+                <tbody>{sa.peg_table.map((row, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <td style={{ padding: "6px 8px", fontWeight: 600 }}>{row.name}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: C.mono }}>{row.fwd_per}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: C.mono }}>{row.eps_growth}%</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: C.mono, fontWeight: 700 }}>{row.peg}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}><PegBadge peg={row.peg} /></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+
+          {/* 섹터별 종목 카드 */}
+          {sa.sectors?.map((sector, si) => (
+            <div key={si} style={{ ...S.card, marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center" }}>
+                {sector.name} {sector.peg && <PegBadge peg={sector.peg} />}
+              </div>
+              {sector.stocks?.map((stock, sti) => (
+                <div key={sti} style={{ background: C.bg, borderRadius: 5, padding: 12, marginBottom: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>{stock.name} <span style={{ fontSize: 10, color: C.textDim, fontFamily: C.mono }}>{stock.ticker}</span></span>
+                    <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      {stock.weight_pct && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: C.accentDim, color: C.accent }}>비중 {stock.weight_pct}%</span>}
+                      {stock.peg && <PegBadge peg={stock.peg} />}
+                      <SourceTag types={stock.source_tags} />
+                    </span>
+                  </div>
+                  {stock.overview && <p style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 4 }}><b>기업개요:</b> {stock.overview}</p>}
+                  {stock.products && <p style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 6 }}><b>대표 제품:</b> {stock.products}</p>}
+                  {/* 재무 데이터 */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 8 }}>
+                    {stock.price && <div><span style={{ fontSize: 9, color: C.textDim }}>주가</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.price}</div></div>}
+                    {stock.market_cap && <div><span style={{ fontSize: 9, color: C.textDim }}>시가총액</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.market_cap}</div></div>}
+                    {stock.per_fwd && <div><span style={{ fontSize: 9, color: C.textDim }}>Forward PER</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.per_fwd}</div></div>}
+                    {stock.op_profit && <div><span style={{ fontSize: 9, color: C.textDim }}>영업이익</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.op_profit}</div></div>}
+                    {stock.target_price && <div><span style={{ fontSize: 9, color: C.textDim }}>목표가</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.target_price}</div></div>}
+                    {stock.op_profit_estimate && <div><span style={{ fontSize: 9, color: C.textDim }}>2026E</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.op_profit_estimate}</div></div>}
+                  </div>
+                  {/* 투자포인트 */}
+                  {stock.invest_points?.length > 0 && stock.invest_points.map((pt, pi) => (
+                    <p key={pi} style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 3 }}>• {pt}</p>
+                  ))}
+                  {/* 리스크 */}
+                  {stock.risks && <div style={{ background: C.downBg, border: `1px solid rgba(220,38,38,0.15)`, borderRadius: 5, padding: "6px 10px", fontSize: 10, color: C.down, lineHeight: 1.5, marginTop: 6 }}>⚠️ 리스크: {stock.risks}</div>}
+                </div>
+              ))}
+            </div>
+          ))}
+
+          {/* 해외 종목 */}
+          {sa.overseas?.map((group, gi) => (
+            <div key={gi} style={{ ...S.card, marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center" }}>
+                🇺🇸 {group.name} {group.peg && <PegBadge peg={group.peg} />}
+              </div>
+              {group.stocks?.map((stock, sti) => (
+                <div key={sti} style={{ background: C.bg, borderRadius: 5, padding: 12, marginBottom: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>{stock.name} <span style={{ fontSize: 10, color: C.textDim, fontFamily: C.mono }}>{stock.ticker}</span></span>
+                    <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      {stock.weight_pct && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: C.accentDim, color: C.accent }}>비중 {stock.weight_pct}%</span>}
+                      {stock.peg && <PegBadge peg={stock.peg} />}
+                      <SourceTag types={stock.source_tags} />
+                    </span>
+                  </div>
+                  {stock.overview && <p style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 4 }}><b>기업개요:</b> {stock.overview}</p>}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 8 }}>
+                    {stock.price && <div><span style={{ fontSize: 9, color: C.textDim }}>주가</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.price}</div></div>}
+                    {stock.per_fwd && <div><span style={{ fontSize: 9, color: C.textDim }}>PER / PEG</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.per_fwd} / {stock.peg}</div></div>}
+                    {stock.revenue_quarterly && <div><span style={{ fontSize: 9, color: C.textDim }}>분기 매출</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.revenue_quarterly}</div></div>}
+                    {stock.fcf_quarterly && <div><span style={{ fontSize: 9, color: C.textDim }}>분기 FCF</span><div style={{ fontSize: 11, fontWeight: 600, fontFamily: C.mono }}>{stock.fcf_quarterly}</div></div>}
+                  </div>
+                  {stock.invest_points?.length > 0 && stock.invest_points.map((pt, pi) => (
+                    <p key={pi} style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginBottom: 3 }}>• {pt}</p>
+                  ))}
+                  {stock.risks && <div style={{ background: C.downBg, border: `1px solid rgba(220,38,38,0.15)`, borderRadius: 5, padding: "6px 10px", fontSize: 10, color: C.down, lineHeight: 1.5, marginTop: 6 }}>⚠️ 리스크: {stock.risks}</div>}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 면책 문구 */}
+      <div style={{ background: "rgba(220,38,38,0.04)", border: "1px solid rgba(220,38,38,0.15)", borderRadius: 6, padding: "10px 14px", marginTop: 12 }}>
+        <p style={{ fontSize: 10, color: C.down, lineHeight: 1.6 }}>⚠️ 본 포트폴리오 추천은 AI가 텔레그램 채널, 증권사 리포트, 거시경제 데이터를 분석하여 자동 생성한 것입니다. 투자 판단의 참고 자료로만 사용하시고, 최종 투자 결정은 본인의 판단과 책임 하에 이루어져야 합니다.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ FORECAST PAGE (예측 추적) ═══ */
+function ForecastPage({ showToast }) {
+  const [forecasts, setForecasts] = useState([]);
+  const [feedback, setFeedback] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        if (window.getForecasts) {
+          const data = await window.getForecasts("all");
+          setForecasts(data);
+        }
+        if (window.getLatestFeedback) {
+          const fb = await window.getLatestFeedback();
+          if (fb) setFeedback(fb);
+        }
+      } catch (e) {}
+      setLoading(false);
+    })();
+  }, []);
+
+  const pending = forecasts.filter(f => f.status === "pending");
+  const completed = forecasts.filter(f => f.status !== "pending");
+  const hr = feedback?.hit_rates || {};
+  const analysis = feedback?.analysis || {};
+
+  const StatusBadge = ({ status }) => {
+    const map = { hit: { bg: C.upBg, color: C.up, label: "Hit" }, partial: { bg: "rgba(245,158,11,0.1)", color: "#F59E0B", label: "Partial" }, miss: { bg: C.downBg, color: C.down, label: "Miss" } };
+    const s = map[status] || map.miss;
+    return <span style={{ background: s.bg, color: s.color, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 3 }}>{s.label}</span>;
+  };
+
+  const TypeBadge = ({ type }) => {
+    const map = { numeric: { bg: C.accentDim, color: C.accent, label: "수치" }, direction: { bg: C.upBg, color: C.up, label: "방향" }, story: { bg: "rgba(124,58,237,0.06)", color: "#7C3AED", label: "스토리" }, event: { bg: "rgba(245,158,11,0.08)", color: "#F59E0B", label: "이벤트" } };
+    const s = map[type] || map.story;
+    return <span style={{ background: s.bg, color: s.color, fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 3 }}>{s.label}</span>;
+  };
+
+  return (
+    <div style={{ padding: "12px 0" }}>
+      <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3, marginBottom: 4 }}>🎯 예측 추적 대시보드</h2>
+      <p style={{ fontSize: 10, color: C.textDim, marginBottom: 12 }}>수치 방향성 + 스토리/내러티브 + 지정학/구조적 판단 통합 추적</p>
+
+      {loading && <div style={{ textAlign: "center", padding: "40px 0", color: C.textDim }}><div style={S.loadSpin} /><p style={{ fontSize: 12, marginTop: 8 }}>불러오는 중...</p></div>}
+
+      {!loading && (
+        <>
+          {/* 적중률 바 차트 */}
+          {hr.by_category && (
+            <div style={{ ...S.card, marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📊 카테고리별 적중률</div>
+              {Object.entries(hr.by_category).map(([cat, rate]) => (
+                <div key={cat} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: C.textMid, minWidth: 80 }}>{cat}</span>
+                  <div style={{ flex: 1, height: 14, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${rate}%`, borderRadius: 3, background: rate >= 70 ? C.up : rate >= 55 ? C.accent : C.down, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 4, fontSize: 8, fontWeight: 700, color: "#fff" }}>{rate}%</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 진행 중인 예측 */}
+          <div style={{ ...S.card, marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#F59E0B", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>⏳ 진행 중 ({pending.length})</div>
+            {pending.length === 0 && <p style={{ fontSize: 12, color: C.textDim }}>진행 중인 예측이 없습니다</p>}
+            {pending.map(f => (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
+                <span style={{ fontSize: 10, color: C.textDim, width: 65, fontFamily: C.mono }}>{f.created_at?.slice(5, 10)}</span>
+                <TypeBadge type={f.type} />
+                <span style={{ flex: 1, fontWeight: 500, marginLeft: 4 }}>{f.prediction}</span>
+                <span style={{ fontSize: 9, color: C.textDim, fontFamily: C.mono }}>{f.check_date?.slice(5, 10)}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* 완료된 예측 */}
+          <div style={{ ...S.card, marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.up, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>✅ 완료 ({completed.length})</div>
+            {completed.length === 0 && <p style={{ fontSize: 12, color: C.textDim }}>아직 평가된 예측이 없습니다</p>}
+            {completed.map(f => (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
+                <span style={{ fontSize: 10, color: C.textDim, width: 65, fontFamily: C.mono }}>{f.created_at?.slice(5, 10)}</span>
+                <TypeBadge type={f.type} />
+                <span style={{ flex: 1, fontWeight: 500, marginLeft: 4 }}>{f.prediction}{f.actual_result ? ` → ${f.actual_result}` : ""}</span>
+                <StatusBadge status={f.status} />
+              </div>
+            ))}
+          </div>
+
+          {/* AI 자기 분석 */}
+          {analysis.strengths && (
+            <div style={{ ...S.card, borderColor: "rgba(124,58,237,0.2)", marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#7C3AED", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>🧠 AI 자기 분석</div>
+              {analysis.strengths?.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.up }}>STRENGTH</span>
+                  {analysis.strengths.map((s, i) => <p key={i} style={{ fontSize: 12, color: C.textMid, marginTop: 2, lineHeight: 1.6 }}>{s.description || s.category}</p>)}
+                </div>
+              )}
+              {analysis.weaknesses?.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.down }}>WEAKNESS</span>
+                  {analysis.weaknesses.map((w, i) => <p key={i} style={{ fontSize: 12, color: C.textMid, marginTop: 2, lineHeight: 1.6 }}>{w.pattern || w.category}</p>)}
+                </div>
+              )}
+              {analysis.adjustments?.length > 0 && (
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.accent }}>ADJUSTMENT</span>
+                  {analysis.adjustments.map((a, i) => <p key={i} style={{ fontSize: 12, color: C.textMid, marginTop: 2, lineHeight: 1.6 }}>{a.rule}</p>)}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 수동 예측 추가 */}
+          <button style={S.addBtn} onClick={() => showToast("수동 예측 추가 — 추후 구현")}>{Icons.plus} 수동 예측 추가</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ═══ CHANNELS PAGE (텔레그램 채널 관리) ═══ */
+function ChannelsPage({ showToast }) {
+  const [channels, setChannels] = useState([]);
+  const [todayStats, setTodayStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [newHandle, setNewHandle] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        if (window.getChannels) {
+          const data = await window.getChannels();
+          setChannels(data);
+        }
+        if (window.getTodayDigests) {
+          const digests = await window.getTodayDigests();
+          if (digests.length > 0) {
+            // 오늘 수집 통계 합산
+            const stats = { total_messages: 0, total_urls: 0, total_reports: 0 };
+            for (const d of digests) {
+              if (d.stats) {
+                stats.total_messages += d.stats.total_messages || 0;
+                stats.total_urls += d.stats.total_urls || 0;
+                stats.total_reports += d.stats.total_reports || 0;
+              }
+            }
+            setTodayStats(stats);
+          }
+        }
+        // 기본 채널 초기화
+        if (window.initDefaultChannels) await window.initDefaultChannels();
+      } catch (e) {}
+      setLoading(false);
+    })();
+  }, []);
+
+  const handleToggle = async (handle, currentEnabled) => {
+    if (window.toggleChannel) {
+      const ok = await window.toggleChannel(handle, !currentEnabled);
+      if (ok) {
+        setChannels(prev => prev.map(ch => ch.handle === handle ? { ...ch, enabled: !currentEnabled } : ch));
+      }
+    }
+  };
+
+  const handleAdd = async () => {
+    const handle = newHandle.replace("https://t.me/", "").replace("t.me/", "").replace("@", "").trim();
+    if (!handle) { showToast("채널명을 입력해주세요"); return; }
+    if (window.upsertChannel) {
+      const result = await window.upsertChannel({ handle, name: handle, category: "기타", enabled: true });
+      if (result) {
+        setChannels(prev => [...prev, result]);
+        setNewHandle("");
+        showToast(`${handle} 채널 추가됨`);
+      } else {
+        showToast("추가 실패");
+      }
+    }
+  };
+
+  const categories = [...new Set(channels.map(ch => ch.category))];
+  const catColors = { "시황": C.accent, "섹터": "#FF5630", "중국": "#F59E0B", "해외": "#F59E0B", "뉴스": "#0891B2", "기타": C.textDim };
+
+  return (
+    <div style={{ padding: "12px 0" }}>
+      <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3, marginBottom: 12 }}>📡 텔레그램 채널 관리</h2>
+
+      {/* 오늘 수집 현황 */}
+      <div style={{ ...S.card, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, marginBottom: 8, letterSpacing: 0.3 }}>오늘 수집 현황</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1, textAlign: "center", background: C.bg, borderRadius: 5, padding: 10 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, fontFamily: C.mono, color: C.accent }}>{todayStats?.total_messages || 0}</div>
+            <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>메시지</div>
+          </div>
+          <div style={{ flex: 1, textAlign: "center", background: C.bg, borderRadius: 5, padding: 10 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, fontFamily: C.mono, color: C.accent }}>{todayStats?.total_urls || 0}</div>
+            <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>기사 링크</div>
+          </div>
+          <div style={{ flex: 1, textAlign: "center", background: C.bg, borderRadius: 5, padding: 10 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, fontFamily: C.mono, color: C.accent }}>{todayStats?.total_reports || 0}</div>
+            <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>리포트</div>
+          </div>
+        </div>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: "40px 0", color: C.textDim }}><div style={S.loadSpin} /><p style={{ fontSize: 12, marginTop: 8 }}>채널 불러오는 중...</p></div>}
+
+      {!loading && categories.map(cat => (
+        <div key={cat}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: catColors[cat] || C.textDim, letterSpacing: 0.3, margin: "14px 0 6px" }}>{cat}</div>
+          {channels.filter(ch => ch.category === cat).map(ch => (
+            <div key={ch.handle} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 6 }}>
+              <button style={{ width: 38, height: 20, borderRadius: 10, border: "none", cursor: "pointer", position: "relative", background: ch.enabled ? C.accent : C.border }} onClick={() => handleToggle(ch.handle, ch.enabled)}>
+                <span style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: ch.enabled ? 20 : 2, transition: "left 0.2s" }} />
+              </button>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{ch.name}</div>
+                <div style={{ fontSize: 10, color: C.textDim }}>@{ch.handle}{ch.description ? ` · ${ch.description}` : ""}{ch.subscribers ? ` · ${ch.subscribers}` : ""}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {/* 채널 추가 */}
+      <div style={{ display: "flex", gap: 6, marginTop: 14, alignItems: "center" }}>
+        <input style={{ ...S.indexInput, flex: 1, fontFamily: C.sans, fontSize: 12, padding: "9px 12px" }} placeholder="t.me/채널명 입력" value={newHandle} onChange={e => setNewHandle(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAdd()} />
+        <button style={{ ...S.scrapAddBtn, width: "auto", padding: "9px 16px", fontSize: 12 }} onClick={handleAdd}>+ 채널 추가</button>
+      </div>
+      <p style={{ fontSize: 9, color: C.textDim, marginTop: 4 }}>공개 채널만 지원됩니다. AI가 자동으로 채널 성격을 분류합니다.</p>
     </div>
   );
 }
