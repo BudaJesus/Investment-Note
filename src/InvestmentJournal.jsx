@@ -622,13 +622,13 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
       {viewMode === "monthly" && <MonthlyView entries={entries} viewYear={viewYear} viewMonth={viewMonth} setViewYear={setViewYear} setViewMonth={setViewMonth} goToDate={goToDate} />}
       </>)}
 
-      {page === "scrap" && <ScrapPage scraps={scraps} setScraps={setScraps} showToast={showToast} />}
+      {page === "scrap" && <ScrapPage scraps={scraps} setScraps={setScraps} showToast={showToast} showError={showError} />}
 
       {page === "indicators" && <IndicatorsPage indicators={indicators} setIndicators={setIndicators} showToast={showToast} autoData={autoData} setAutoData={setAutoData} userEmail={userEmail} />}
 
-      {page === "reports" && <ReportArchivePage reports={reports} setReports={setReports} customSectors={customSectors} setCustomSectors={setCustomSectors} showToast={showToast} />}
+      {page === "reports" && <ReportArchivePage reports={reports} setReports={setReports} customSectors={customSectors} setCustomSectors={setCustomSectors} showToast={showToast} showError={showError} />}
 
-      {page === "portfolio" && <PortfolioPage showToast={showToast} autoData={autoData} />}
+      {page === "portfolio" && <PortfolioPage showToast={showToast} showError={showError} autoData={autoData} />}
 
       {page === "forecast" && <ForecastPage showToast={showToast} />}
 
@@ -1870,7 +1870,7 @@ function DashboardPage({ setPage, entries, scraps, reports, indicators, routineL
 }
 
 /* ═══ SCRAP PAGE ═══ */
-function ScrapPage({ scraps, setScraps, showToast }) {
+function ScrapPage({ scraps, setScraps, showToast, showError }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCat, setFilterCat] = useState("all");
   const [filterDate, setFilterDate] = useState("");
@@ -2635,7 +2635,7 @@ function IndicatorsPage({ indicators, setIndicators, showToast, autoData, setAut
 }
 
 /* ═══ REPORT ARCHIVE PAGE ═══ */
-function ReportArchivePage({ reports, setReports, customSectors, setCustomSectors, showToast }) {
+function ReportArchivePage({ reports, setReports, customSectors, setCustomSectors, showToast, showError }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterSource, setFilterSource] = useState("all");
   const [filterSector, setFilterSector] = useState("all");
@@ -3206,7 +3206,7 @@ function DataManager({ entries, setEntries, scraps, setScraps, indicators, setIn
 }
 
 /* ═══ PORTFOLIO PAGE (시장전망 + 종목분석) ═══ */
-function PortfolioPage({ showToast, autoData }) {
+function PortfolioPage({ showToast, showError, autoData }) {
   const [subTab, setSubTab] = useState("market");
   const [outlook, setOutlook] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -3229,35 +3229,33 @@ function PortfolioPage({ showToast, autoData }) {
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      // Step 1: 시장전망 생성
       showToast("📊 시장전망 생성 중... (1/2, 약 30초)", 0);
       if (window.triggerGenerateOutlook) {
         const mvResult = await window.triggerGenerateOutlook();
         if (mvResult?.success) {
           showToast("✅ 시장전망 완료! 종목분석 시작... (2/2)", 0);
-          // 시장전망 먼저 로드
           const data1 = await window.getLatestOutlook();
           if (data1) setOutlook(data1);
 
-          // Step 2: 종목분석 생성 (시장전망의 종목 리스트 기반)
           if (window.triggerStockAnalysis) {
             const saResult = await window.triggerStockAnalysis();
             if (saResult?.success) {
               showToast("✅ 시장전망 + 종목분석 모두 완료!");
-              // 종목분석 포함해서 다시 로드
               const data2 = await window.getLatestOutlook();
               if (data2) setOutlook(data2);
             } else {
-              showToast("⚠️ 시장전망은 완료. 종목분석 실패: " + (saResult?.error || "타임아웃"), 0);
+              showToast("⚠️ 시장전망 완료, 종목분석 실패 (상세보기 클릭)", 0);
+              showError("종목분석 실패", saResult);
             }
           }
         } else {
-          showToast("❌ 생성 실패: " + (mvResult?.error || "알 수 없는 오류"), 0);
+          showToast("❌ 시장전망 생성 실패 (상세보기 클릭)", 0);
+          showError("시장전망 생성 실패", mvResult);
         }
       } else {
         showToast("Supabase 연결 필요");
       }
-    } catch (e) { showToast("오류: " + e.message); }
+    } catch (e) { showToast("❌ 오류 (상세보기 클릭)", 0); showError("포트폴리오 오류", e.message); }
     setGenerating(false);
   };
 
