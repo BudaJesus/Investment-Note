@@ -187,6 +187,8 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
   const [lastSaved, setLastSaved] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [toast, setToast] = useState(null);
+  const [toastPersist, setToastPersist] = useState(false); // true = X 버튼으로만 닫힘
+  const toastTimer = useRef(null);
   const [viewMode, setViewMode] = useState("daily");
   const [viewYear, setViewYear] = useState(new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(new Date().getMonth());
@@ -258,7 +260,18 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
     else setStorageAlert(null);
   }, [loaded, entries, scraps, indicators, reports]);
 
-  const showToast = (msg, dur = 1800) => { setToast(msg); setTimeout(() => setToast(null), dur); };
+  // dur=0 → 사라지지 않음 (X 버튼으로만 닫기). dur>0 → 자동 사라짐.
+  const showToast = (msg, dur = 2500) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(msg);
+    if (dur === 0) {
+      setToastPersist(true);
+    } else {
+      setToastPersist(false);
+      toastTimer.current = setTimeout(() => setToast(null), dur);
+    }
+  };
+  const dismissToast = () => { setToast(null); setToastPersist(false); if (toastTimer.current) clearTimeout(toastTimer.current); };
 
   const currentEntry = entries[selectedDate] || emptyEntry();
 
@@ -310,7 +323,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
   return (
     <div style={S.root}>
       <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-      {toast && <div style={S.toast}>{toast}</div>}
+      {toast && <div style={{ ...S.toast, display: "flex", alignItems: "center", gap: 8, paddingRight: 8 }}><span style={{ flex: 1 }}>{toast}</span><button onClick={dismissToast} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", fontSize: 14, cursor: "pointer", padding: "0 4px", lineHeight: 1, flexShrink: 0 }}>✕</button></div>}
 
       <header style={S.header}>
         <div style={S.headerLeft} onClick={() => setPage("dashboard")} role="button" tabIndex={0}>
@@ -453,7 +466,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
           <button style={S.quickBtn} onClick={copyPrev}>{Icons.copy} 전일 데이터 복사</button>
           <button style={S.quickBtn} onClick={() => setSelectedDate(toKey(new Date()))}>{Icons.calendar} 오늘로 이동</button>
           <button style={{ ...S.quickBtn, background: "#7C3AED", color: "#fff", borderColor: "#7C3AED", fontWeight: 700, padding: "6px 14px" }} onClick={async () => {
-            showToast("✨ AI 자동입력 중... (30초~1분 소요)");
+            showToast("✨ AI 자동입력 중... (30초~1분 소요)", 0);
             try {
               if (window.autoFillJournal) {
                 const result = await window.autoFillJournal();
@@ -461,72 +474,64 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                   const d = result.data;
                   updateEntry((prev) => {
                     const next = { ...prev };
-                    // ── marketNotes (국가별 증시 reason+outlook) ──
+                    // ── marketNotes (국가별 증시 — 무조건 덮어쓰기) ──
                     if (d.marketNotes) {
                       const mn = { ...(next.marketNotes || {}) };
                       for (const [country, vals] of Object.entries(d.marketNotes)) {
                         if (!mn[country]) mn[country] = {};
-                        if (!mn[country].reason && vals.reason) mn[country].reason = vals.reason;
-                        if (!mn[country].outlook && vals.outlook) mn[country].outlook = vals.outlook;
+                        if (vals.reason) mn[country].reason = vals.reason;
+                        if (vals.outlook) mn[country].outlook = vals.outlook;
                       }
                       next.marketNotes = mn;
                     }
                     // ── bondOutlook + 개별 채권 reason ──
-                    if (!next.bondOutlook && d.bondOutlook) next.bondOutlook = d.bondOutlook;
+                    if (d.bondOutlook) next.bondOutlook = d.bondOutlook;
                     if (d.bondReasons) {
                       const bonds = [...(next.bonds || [])];
                       for (const [id, reason] of Object.entries(d.bondReasons)) {
                         const idx = bonds.findIndex(b => b.id === id);
-                        if (idx >= 0 && !bonds[idx].reason && reason) bonds[idx] = { ...bonds[idx], reason };
+                        if (idx >= 0 && reason) bonds[idx] = { ...bonds[idx], reason };
                       }
                       next.bonds = bonds;
                     }
                     // ── fxOutlook + 개별 환율 reason ──
-                    if (!next.fxOutlook && d.fxOutlook) next.fxOutlook = d.fxOutlook;
+                    if (d.fxOutlook) next.fxOutlook = d.fxOutlook;
                     if (d.fxReasons) {
                       const fx = [...(next.fx || [])];
                       for (const [id, reason] of Object.entries(d.fxReasons)) {
                         const idx = fx.findIndex(f => f.id === id);
-                        if (idx >= 0) {
-                          if (!fx[idx].reason && reason) fx[idx] = { ...fx[idx], reason };
-                        }
+                        if (idx >= 0 && reason) fx[idx] = { ...fx[idx], reason };
                       }
                       next.fx = fx;
                     }
                     // ── commodityOutlook + 개별 원자재 reason ──
-                    if (!next.commodityOutlook && d.commodityOutlook) next.commodityOutlook = d.commodityOutlook;
+                    if (d.commodityOutlook) next.commodityOutlook = d.commodityOutlook;
                     if (d.commodityReasons) {
                       const comms = [...(next.commodities || [])];
                       for (const [id, reason] of Object.entries(d.commodityReasons)) {
                         const idx = comms.findIndex(c => c.id === id);
-                        if (idx >= 0 && !comms[idx].reason && reason) comms[idx] = { ...comms[idx], reason };
+                        if (idx >= 0 && reason) comms[idx] = { ...comms[idx], reason };
                       }
                       next.commodities = comms;
                     }
                     // ── memo ──
-                    if (!next.memo && d.memo) next.memo = d.memo;
-                    // ── sectors (기존에 이름이 비어있는 기본값이면 교체) ──
+                    if (d.memo) next.memo = d.memo;
+                    // ── sectors ──
                     if (d.sectors?.length > 0) {
-                      const hasContent = (next.sectors || []).some(s => s.name && s.name.trim());
-                      if (!hasContent) {
-                        next.sectors = d.sectors.map((s, i) => ({ id: Date.now() + i, ...s }));
-                      }
+                      next.sectors = d.sectors.map((s, i) => ({ id: Date.now() + i, ...s }));
                     }
-                    // ── stocks (기존에 이름이 비어있는 기본값이면 교체) ──
+                    // ── stocks ──
                     if (d.stocks?.length > 0) {
-                      const hasContent = (next.stocks || []).some(s => s.name && s.name.trim());
-                      if (!hasContent) {
-                        next.stocks = d.stocks.map((s, i) => ({ id: Date.now() + 100 + i, ...s }));
-                      }
+                      next.stocks = d.stocks.map((s, i) => ({ id: Date.now() + 100 + i, ...s }));
                     }
                     return next;
                   });
-                  showToast("✅ 자동입력 완료! 모든 카테고리의 빈 칸이 채워졌습니다.");
+                  showToast("✅ 자동입력 완료! 모든 카테고리가 갱신되었습니다.");
                 } else {
-                  showToast("자동입력 실패: " + (result?.error || "수집된 데이터가 없습니다. 먼저 헤더의 '📡 정보 수집' 버튼을 눌러주세요."));
+                  showToast("❌ 자동입력 실패: " + (result?.error || "수집된 데이터가 없습니다. 먼저 헤더의 📡 정보 수집 버튼을 눌러주세요."), 0);
                 }
               } else showToast("Supabase 연결 필요");
-            } catch (e) { showToast("자동입력 오류: " + e.message); }
+            } catch (e) { showToast("❌ 자동입력 오류: " + e.message, 0); }
           }}>✨ 자동입력</button>
         </div>
         <nav style={S.tabs}>
@@ -1910,7 +1915,7 @@ function ScrapPage({ scraps, setScraps, showToast }) {
       {/* Auto-fill + Add buttons */}
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <button style={{ ...S.scrapAddBtn, flex: 1, background: "#7C3AED", borderColor: "#7C3AED" }} onClick={async () => {
-          showToast("✨ 기사 자동정리 중...");
+          showToast("✨ 기사 자동정리 중... (30초~1분)", 0);
           try {
             if (window.autoFillScrap) {
               const result = await window.autoFillScrap();
@@ -1921,9 +1926,12 @@ function ScrapPage({ scraps, setScraps, showToast }) {
                 }));
                 setScraps(prev => [...newScraps, ...prev]);
                 showToast(`✅ ${newScraps.length}개 기사 자동 추가!`);
-              } else showToast("자동정리할 기사가 없습니다. 먼저 '📡 정보 수집'을 실행하세요.");
+              } else {
+                const debugInfo = result?.debug || result?.error || `scraps: ${result?.scraps?.length || 0}, count: ${result?.count || 0}`;
+                showToast("❌ 기사 자동정리 실패: " + debugInfo, 0);
+              }
             } else showToast("Supabase 연결 필요");
-          } catch (e) { showToast("네트워크 오류"); }
+          } catch (e) { showToast("오류: " + e.message); }
         }}>✨ 자동입력</button>
         <button style={{ ...S.scrapAddBtn, flex: 1 }} onClick={() => { resetForm(); setShowForm(true); }}>
           {Icons.plus} 수동 추가
@@ -2706,7 +2714,7 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
 
       <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
         <button style={{ ...S.scrapAddBtn, background: "#7C3AED", borderColor: "#7C3AED" }} onClick={async () => {
-          showToast("✨ 레포트 자동정리 중...");
+          showToast("✨ 레포트 자동정리 중... (30초~1분)", 0);
           try {
             if (window.autoFillReport) {
               const result = await window.autoFillReport();
@@ -2718,9 +2726,12 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
                 }));
                 setReports(prev => [...newReports, ...prev]);
                 showToast(`✅ ${newReports.length}개 레포트 자동 추가!`);
-              } else showToast("자동정리할 레포트가 없습니다. 먼저 '📡 정보 수집'을 실행하세요.");
+              } else {
+                const debugInfo = result?.debug || result?.error || `reports: ${result?.reports?.length || 0}, count: ${result?.count || 0}`;
+                showToast("❌ 레포트 자동정리 실패: " + debugInfo, 0);
+              }
             } else showToast("Supabase 연결 필요");
-          } catch (e) { showToast("네트워크 오류"); }
+          } catch (e) { showToast("오류: " + e.message); }
         }}>✨ 자동입력</button>
         <button style={S.scrapAddBtn} onClick={() => { resetForm(); setShowForm(true); }}>
           {Icons.plus} 수동 추가
@@ -3147,21 +3158,36 @@ function PortfolioPage({ showToast, autoData }) {
 
   const handleGenerate = async () => {
     setGenerating(true);
-    showToast("📡 텔레그램 수집 중...");
     try {
+      // Step 1: 시장전망 생성
+      showToast("📊 시장전망 생성 중... (1/2, 약 30초)", 0);
       if (window.triggerGenerateOutlook) {
-        const result = await window.triggerGenerateOutlook();
-        if (result?.success) {
-          showToast("✅ 포트폴리오 생성 완료!");
-          const data = await window.getLatestOutlook();
-          if (data) setOutlook(data);
+        const mvResult = await window.triggerGenerateOutlook();
+        if (mvResult?.success) {
+          showToast("✅ 시장전망 완료! 종목분석 시작... (2/2)", 0);
+          // 시장전망 먼저 로드
+          const data1 = await window.getLatestOutlook();
+          if (data1) setOutlook(data1);
+
+          // Step 2: 종목분석 생성 (시장전망의 종목 리스트 기반)
+          if (window.triggerStockAnalysis) {
+            const saResult = await window.triggerStockAnalysis();
+            if (saResult?.success) {
+              showToast("✅ 시장전망 + 종목분석 모두 완료!");
+              // 종목분석 포함해서 다시 로드
+              const data2 = await window.getLatestOutlook();
+              if (data2) setOutlook(data2);
+            } else {
+              showToast("⚠️ 시장전망은 완료. 종목분석 실패: " + (saResult?.error || "타임아웃"), 0);
+            }
+          }
         } else {
-          showToast("생성 실패: " + (result?.error || "알 수 없는 오류"));
+          showToast("❌ 생성 실패: " + (mvResult?.error || "알 수 없는 오류"), 0);
         }
       } else {
         showToast("Supabase 연결 필요");
       }
-    } catch (e) { showToast("네트워크 오류"); }
+    } catch (e) { showToast("오류: " + e.message); }
     setGenerating(false);
   };
 

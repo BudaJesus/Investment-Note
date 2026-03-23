@@ -91,6 +91,16 @@ window.autoFillScrap = autoFillScrap
 window.autoFillReport = autoFillReport
 window.triggerGenerateOutlook = triggerGenerateOutlook
 
+export async function triggerStockAnalysis() {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Not logged in' }
+    const res = await fetch(`/api/generate-stock-analysis?user_id=${user.id}`)
+    return await res.json()
+  } catch (e) { return { success: false, error: e.message } }
+}
+window.triggerStockAnalysis = triggerStockAnalysis
+
 // ═══ Outlook ═══
 export async function getLatestOutlook() {
   if (!isSupabaseConfigured) return null
