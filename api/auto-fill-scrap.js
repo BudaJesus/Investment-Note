@@ -15,54 +15,63 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 4000) {
 
 export default async function handler(req, res) {
   try {
-    // 최근 3개 digest에서 기사 모으기 (하나만 보면 부족할 수 있음)
     const { data: digests, error } = await supabase
       .from('telegram_digests')
-      .select('article_bodies, raw_messages, collected_at')
+      .select('*')
       .order('collected_at', { ascending: false })
       .limit(3);
 
-    if (error) return res.status(500).json({ error: error.message });
-    if (!digests || digests.length === 0) return res.status(400).json({ error: 'No digest data. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
+    if (error || !digests || digests.length === 0) 
+      return res.status(400).json({ error: '수집된 데이터가 없습니다. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
 
-    // 모든 digest에서 기사 합치기
+    // 1순위: 기사 원문 (있으면)
     const allArticles = [];
-    const seenUrls = new Set();
     for (const d of digests) {
       for (const a of (d.article_bodies || [])) {
-        if (a.url && !seenUrls.has(a.url)) { seenUrls.add(a.url); allArticles.push(a); }
+        if (a.url && !allArticles.find(x => x.url === a.url)) allArticles.push(a);
       }
     }
 
-    // 기사가 없으면 메시지에서 뉴스성 내용 추출
+    // 2순위: 텔레그램 메시지 (항상 있음 — 이게 핵심 소스)
     const allMessages = [];
     for (const d of digests) {
       for (const [handle, msgs] of Object.entries(d.raw_messages || {})) {
-        for (const msg of msgs) allMessages.push(`[${handle}] ${msg.text.slice(0, 600)}`);
+        for (const msg of msgs) allMessages.push({ handle, text: msg.text, urls: msg.urls || [] });
       }
     }
 
-    if (allArticles.length === 0 && allMessages.length === 0) {
-      return res.status(400).json({ error: '수집된 기사와 메시지가 없습니다. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
+    if (allMessages.length === 0 && allArticles.length === 0) {
+      return res.status(400).json({ error: '수집된 메시지가 없습니다. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
     }
 
-    // 기사 원문 + 메시지(기사 없을 때 대체)
-    let content = '';
-    if (allArticles.length > 0) {
-      content = allArticles.slice(0, 30).map((a, i) => `[${i+1}] 제목: ${a.title}\nURL: ${a.url}\n본문: ${a.body.slice(0, 1500)}`).join('\n---\n');
-    } else {
-      content = '기사 원문이 없어 텔레그램 메시지에서 뉴스성 내용을 추출합니다:\n' + allMessages.slice(0, 40).join('\n---\n');
-    }
+    // 메시지에서 뉴스성 내용 추출 (대부분의 텔레그램 채널이 뉴스 요약을 직접 올림)
+    const newsMessages = allMessages
+      .filter(m => m.text.length > 50) // 짧은 인사말 등 제외
+      .map(m => `[${m.handle}] ${m.text.slice(0, 1000)}${m.urls.length > 0 ? '\nURL: ' + m.urls[0] : ''}`)
+      .slice(0, 50);
 
-    const systemPrompt = `당신은 금융 뉴스 편집자입니다. 기사 원문 또는 텔레그램 메시지를 분석하여 신문스크랩 형식으로 정리합니다.
-카테고리: securities(증권)/economy(경제)/it(IT)/industry(산업)/realestate(부동산)/crypto(가상화폐)/other(기타) 중 하나.
-요약은 3~5문장, 핵심 수치와 시장 영향을 반드시 포함.
-최소 10개 이상 스크랩을 만드세요.
-JSON 배열로만 응답하세요.`;
+    const articleTexts = allArticles.slice(0, 15).map(a => `[기사원문: ${a.title}]\nURL: ${a.url}\n${a.body.slice(0, 1500)}`);
 
-    const userPrompt = `아래 ${allArticles.length}개 기사 + ${allMessages.length}개 메시지를 스크랩으로 정리하세요:\n\n${content.slice(0, 50000)}\n\nJSON 배열로 응답:\n[\n  { "title": "제목", "url": "원본URL 또는 빈문자열", "category": "카테고리id", "summary": "3~5문장 요약", "source": "auto" }\n]`;
+    const content = [
+      `=== 텔레그램 채널 메시지 (${newsMessages.length}개) ===`,
+      ...newsMessages,
+      articleTexts.length > 0 ? `\n=== 기사 원문 (${articleTexts.length}개) ===` : '',
+      ...articleTexts,
+    ].filter(Boolean).join('\n---\n').slice(0, 60000);
 
-    const result = await callClaude(systemPrompt, userPrompt, 4000);
+    const systemPrompt = `당신은 금융 뉴스 편집자입니다. 텔레그램 채널 메시지와 기사를 분석하여 신문스크랩을 만듭니다.
+
+규칙:
+- 텔레그램 메시지 자체가 뉴스 요약인 경우가 많습니다. 이것도 스크랩으로 만드세요.
+- 카테고리: securities(증권)/economy(경제)/it(IT)/industry(산업)/realestate(부동산)/crypto(가상화폐)/other(기타)
+- 요약은 3~5문장, 핵심 수치와 시장 영향 포함
+- 최소 10개, 가능하면 15~20개 스크랩을 만드세요
+- 같은 내용 중복은 제거하세요
+- JSON 배열로만 응답하세요`;
+
+    const userPrompt = `아래 텔레그램 메시지와 기사를 신문스크랩으로 정리하세요:\n\n${content}\n\nJSON 배열:\n[\n  { "title": "제목 (한줄로 핵심 요약)", "url": "URL 있으면 포함, 없으면 빈문자열", "category": "카테고리id", "summary": "3~5문장 상세 요약 (수치 포함)", "source": "auto", "channel": "텔레그램채널명" }\n]`;
+
+    const result = await callClaude(systemPrompt, userPrompt, 5000);
     const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const scraps = JSON.parse(cleaned);
 
