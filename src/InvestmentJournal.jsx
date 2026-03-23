@@ -472,7 +472,9 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                 const result = await window.autoFillJournal();
                 if (result?.success && result?.data) {
                   const d = result.data;
-                  const y = result.yahoo || {}; // Yahoo Finance 수치
+                  const y = result.yahoo || {};
+                  // AI 데이터 안전 변환 — object가 오면 string으로, null이면 빈 문자열
+                  const safeStr = (v) => { if (v === null || v === undefined) return ''; if (typeof v === 'object') return v.text || JSON.stringify(v); return String(v); };
                   updateEntry((prev) => {
                     const next = { ...prev };
                     // ── Yahoo 수치 → markets 배열 (지수 가격/등락률) ──
@@ -513,50 +515,50 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                       const mn = { ...(next.marketNotes || {}) };
                       for (const [country, vals] of Object.entries(d.marketNotes)) {
                         if (!mn[country]) mn[country] = {};
-                        if (vals.reason) mn[country].reason = vals.reason;
-                        if (vals.outlook) mn[country].outlook = vals.outlook;
+                        if (vals.reason) mn[country].reason = safeStr(vals.reason);
+                        if (vals.outlook) mn[country].outlook = safeStr(vals.outlook);
                       }
                       next.marketNotes = mn;
                     }
                     // ── bondOutlook + 개별 채권 reason ──
-                    if (d.bondOutlook) next.bondOutlook = d.bondOutlook;
+                    if (d.bondOutlook) next.bondOutlook = safeStr(d.bondOutlook);
                     if (d.bondReasons) {
                       const bonds = [...(next.bonds || [])];
                       for (const [id, reason] of Object.entries(d.bondReasons)) {
                         const idx = bonds.findIndex(b => b.id === id);
-                        if (idx >= 0 && reason) bonds[idx] = { ...bonds[idx], reason };
+                        if (idx >= 0 && reason) bonds[idx] = { ...bonds[idx], reason: safeStr(reason) };
                       }
                       next.bonds = bonds;
                     }
                     // ── fxOutlook + 개별 환율 reason ──
-                    if (d.fxOutlook) next.fxOutlook = d.fxOutlook;
+                    if (d.fxOutlook) next.fxOutlook = safeStr(d.fxOutlook);
                     if (d.fxReasons) {
                       const fx = [...(next.fx || [])];
                       for (const [id, reason] of Object.entries(d.fxReasons)) {
                         const idx = fx.findIndex(f => f.id === id);
-                        if (idx >= 0 && reason) fx[idx] = { ...fx[idx], reason };
+                        if (idx >= 0 && reason) fx[idx] = { ...fx[idx], reason: safeStr(reason) };
                       }
                       next.fx = fx;
                     }
                     // ── commodityOutlook + 개별 원자재 reason ──
-                    if (d.commodityOutlook) next.commodityOutlook = d.commodityOutlook;
+                    if (d.commodityOutlook) next.commodityOutlook = safeStr(d.commodityOutlook);
                     if (d.commodityReasons) {
                       const comms = [...(next.commodities || [])];
                       for (const [id, reason] of Object.entries(d.commodityReasons)) {
                         const idx = comms.findIndex(c => c.id === id);
-                        if (idx >= 0 && reason) comms[idx] = { ...comms[idx], reason };
+                        if (idx >= 0 && reason) comms[idx] = { ...comms[idx], reason: safeStr(reason) };
                       }
                       next.commodities = comms;
                     }
                     // ── memo ──
-                    if (d.memo) next.memo = d.memo;
+                    if (d.memo) next.memo = safeStr(d.memo);
                     // ── sectors ──
                     if (d.sectors?.length > 0) {
-                      next.sectors = d.sectors.map((s, i) => ({ id: Date.now() + i, ...s }));
+                      next.sectors = d.sectors.map((s, i) => ({ id: Date.now() + i, name: safeStr(s.name), change: safeStr(s.change), reason: safeStr(s.reason), outlook: safeStr(s.outlook) }));
                     }
                     // ── stocks ──
                     if (d.stocks?.length > 0) {
-                      next.stocks = d.stocks.map((s, i) => ({ id: Date.now() + 100 + i, ...s }));
+                      next.stocks = d.stocks.map((s, i) => ({ id: Date.now() + 100 + i, name: safeStr(s.name), ticker: safeStr(s.ticker), price: safeStr(s.price), change: safeStr(s.change), reason: safeStr(s.reason), outlook: safeStr(s.outlook) }));
                     }
                     return next;
                   });
