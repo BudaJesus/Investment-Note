@@ -553,16 +553,18 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                     // ── memo ──
                     if (d.memo) next.memo = safeStr(d.memo);
                     // ── sectors ──
-                    if (d.sectors?.length > 0) {
-                      next.sectors = d.sectors.map((s, i) => ({ id: Date.now() + i, name: safeStr(s.name), change: safeStr(s.change), reason: safeStr(s.reason), outlook: safeStr(s.outlook) }));
+                    if (Array.isArray(d.sectors) && d.sectors.length > 0) {
+                      next.sectors = d.sectors.filter(s => s && typeof s === 'object').map((s, i) => ({ id: Date.now() + i, name: safeStr(s.name), change: safeStr(s.change), reason: safeStr(s.reason), outlook: safeStr(s.outlook) }));
                     }
                     // ── stocks ──
-                    if (d.stocks?.length > 0) {
-                      next.stocks = d.stocks.map((s, i) => ({ id: Date.now() + 100 + i, name: safeStr(s.name), ticker: safeStr(s.ticker), price: safeStr(s.price), change: safeStr(s.change), reason: safeStr(s.reason), outlook: safeStr(s.outlook) }));
+                    if (Array.isArray(d.stocks) && d.stocks.length > 0) {
+                      next.stocks = d.stocks.filter(s => s && typeof s === 'object').map((s, i) => ({ id: Date.now() + 100 + i, name: safeStr(s.name), ticker: safeStr(s.ticker), price: safeStr(s.price), change: safeStr(s.change), reason: safeStr(s.reason), outlook: safeStr(s.outlook) }));
                     }
                     return next;
                   });
-                  showToast("✅ 자동입력 완료! 모든 카테고리가 갱신되었습니다.");
+                  const q = result.quality;
+                  const qMsg = q ? ` (품질 ${q.score}/100${q.issues?.length > 0 ? ', 보완: ' + q.issues.slice(0, 2).join(', ') : ''})` : '';
+                  showToast(`✅ 자동입력 완료!${qMsg}`);
                 } else {
                   showToast("❌ 자동입력 실패: " + (result?.error || "수집된 데이터가 없습니다. 먼저 헤더의 📡 정보 수집 버튼을 눌러주세요."), 0);
                 }
@@ -1175,16 +1177,16 @@ function MarketSection({ entry, updateEntry, autoData }) {
 /* ═══ SECTOR ═══ */
 function SectorSection({ entry, updateEntry }) {
   const add = () => updateEntry((p) => ({ ...p, sectors: [...p.sectors, { id: Date.now(), name: "", change: "", reason: "", outlook: "" }] }));
-  const rm = (id) => updateEntry((p) => ({ ...p, sectors: p.sectors.filter((s) => s.id !== id) }));
-  const upd = (id, f, v) => updateEntry((p) => ({ ...p, sectors: p.sectors.map((s) => s.id === id ? { ...s, [f]: v } : s) }));
+  const rm = (id) => updateEntry((p) => ({ ...p, sectors: (p.sectors || []).filter((s) => s.id !== id) }));
+  const upd = (id, f, v) => updateEntry((p) => ({ ...p, sectors: (p.sectors || []).map((s) => s.id === id ? { ...s, [f]: v } : s) }));
   return (
     <div style={S.sectionWrap}>
-      {entry.sectors.map((s, i) => (
+      {(entry.sectors || []).map((s, i) => (
         <div key={s.id} style={S.card}>
           <div style={S.cardHeader}>
             <span style={S.sectionNum}>#{i + 1}</span>
             <input style={S.cardTitleInput} placeholder="섹터명 (예: 반도체, 2차전지...)" value={s.name} onChange={(e) => upd(s.id, "name", e.target.value)} />
-            {entry.sectors.length > 1 && <button style={S.removeBtn} onClick={() => rm(s.id)}>{Icons.trash}</button>}
+            {(entry.sectors || []).length > 1 && <button style={S.removeBtn} onClick={() => rm(s.id)}>{Icons.trash}</button>}
           </div>
           <div style={S.fieldGroup}><label style={S.fieldLabel}>주가 변화</label><input style={S.input} placeholder="예: 반도체 ETF +2.3%" value={s.change} onChange={(e) => upd(s.id, "change", e.target.value)} /></div>
           <div style={S.fieldGroup}><label style={S.fieldLabel}>변동 이유</label><textarea style={S.textarea} rows={2} placeholder="섹터 변동 원인..." value={s.reason} onChange={(e) => upd(s.id, "reason", e.target.value)} /></div>
@@ -1204,8 +1206,8 @@ function StockSection({ entry, updateEntry, autoData }) {
   const [loadingPrice, setLoadingPrice] = useState(null);
 
   const add = () => updateEntry((p) => ({ ...p, stocks: [...p.stocks, { id: Date.now(), name: "", ticker: "", price: "", change: "", reason: "", outlook: "" }] }));
-  const rm = (id) => updateEntry((p) => ({ ...p, stocks: p.stocks.filter((s) => s.id !== id) }));
-  const upd = (id, f, v) => updateEntry((p) => ({ ...p, stocks: p.stocks.map((s) => s.id === id ? { ...s, [f]: v } : s) }));
+  const rm = (id) => updateEntry((p) => ({ ...p, stocks: (p.stocks || []).filter((s) => s.id !== id) }));
+  const upd = (id, f, v) => updateEntry((p) => ({ ...p, stocks: (p.stocks || []).map((s) => s.id === id ? { ...s, [f]: v } : s) }));
 
   const searchTimerRef = useRef(null);
   const searchStock = async (query, stockId) => {
@@ -1237,7 +1239,7 @@ function StockSection({ entry, updateEntry, autoData }) {
         const data = await res.json();
         const d = data[result.symbol];
         if (d) {
-          updateEntry((p) => ({ ...p, stocks: p.stocks.map((s) => s.id === stockId ? { ...s, price: d.price, change: d.change || "" } : s) }));
+          updateEntry((p) => ({ ...p, stocks: (p.stocks || []).map((s) => s.id === stockId ? { ...s, price: d.price, change: d.change || "" } : s) }));
         }
       }
     } catch (e) {}
@@ -1253,7 +1255,7 @@ function StockSection({ entry, updateEntry, autoData }) {
         const data = await res.json();
         const d = data[ticker];
         if (d) {
-          updateEntry((p) => ({ ...p, stocks: p.stocks.map((s) => s.id === stockId ? { ...s, price: d.price, change: d.change || "" } : s) }));
+          updateEntry((p) => ({ ...p, stocks: (p.stocks || []).map((s) => s.id === stockId ? { ...s, price: d.price, change: d.change || "" } : s) }));
         }
       }
     } catch (e) {}
@@ -1262,7 +1264,7 @@ function StockSection({ entry, updateEntry, autoData }) {
 
   return (
     <div style={S.sectionWrap}>
-      {entry.stocks.map((s, i) => (
+      {(entry.stocks || []).map((s, i) => (
         <div key={s.id} style={S.card}>
           <div style={S.cardHeader}>
             <span style={S.sectionNum}>#{i + 1}</span>
@@ -1282,7 +1284,7 @@ function StockSection({ entry, updateEntry, autoData }) {
               )}
             </div>
             {s.ticker && <span style={{ fontSize: 9, color: C.accent, fontFamily: C.mono, fontWeight: 600, flexShrink: 0 }}>{s.ticker}</span>}
-            {entry.stocks.length > 1 && <button style={S.removeBtn} onClick={() => rm(s.id)}>{Icons.trash}</button>}
+            {(entry.stocks || []).length > 1 && <button style={S.removeBtn} onClick={() => rm(s.id)}>{Icons.trash}</button>}
           </div>
           <div style={S.cardGrid}>
             <div style={S.fieldGroup}>
