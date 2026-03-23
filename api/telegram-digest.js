@@ -333,11 +333,13 @@ export default async function handler(req, res) {
 
     let prevMsgIds = {};
     let prevArticleUrls = new Set();
+    let prevReportNames = new Set();
     try {
-      const { data } = await supabase.from('telegram_digests').select('last_msg_ids, article_bodies')
+      const { data } = await supabase.from('telegram_digests').select('last_msg_ids, article_bodies, report_texts')
         .order('collected_at', { ascending: false }).limit(1).single();
       if (data?.last_msg_ids) prevMsgIds = data.last_msg_ids;
       if (data?.article_bodies) for (const a of data.article_bodies) if (a.url) prevArticleUrls.add(a.url);
+      if (data?.report_texts) for (const r of data.report_texts) if (r.fileName) prevReportNames.add(r.fileName);
     } catch (e) {}
 
     const yahooSnapshot = await fetchYahooSnapshot();
@@ -367,17 +369,49 @@ export default async function handler(req, res) {
       await new Promise(r => setTimeout(r, 200));
     }
 
-    const reportTexts = await fetchReportTexts();
+    let reportTexts = await fetchReportTexts();
+    // 이전 수집과 중복된 레포트 제거
+    if (prevReportNames.size > 0) {
+      const before = reportTexts.length;
+      reportTexts = reportTexts.filter(r => !prevReportNames.has(r.fileName));
+      if (before !== reportTexts.length) console.log(`Reports dedup: ${before} → ${reportTexts.length}`);
+    }
 
     const stats = { total_messages: totalMessages, total_articles: articleBodies.length, total_reports: reportTexts.length, channels_collected: Object.keys(rawMessages).length, yahoo_symbols: Object.keys(yahooSnapshot).length };
 
-    const { error } = await supabase.from('telegram_digests').insert({
-      date_key: dateKey, raw_messages: rawMessages, last_msg_ids: newMsgIds,
-      article_bodies: articleBodies, report_texts: reportTexts, yahoo_snapshot: yahooSnapshot,
-      stats, run_type: runType,
-    });
+    // 같은 날짜+runType이면 덮어쓰기 (중복 방지)
+    // 먼저 기존 행 확인
+    const { data: existing } = await supabase.from('telegram_digests')
+      .select('id, report_texts, article_bodies')
+      .eq('date_key', dateKey).eq('run_type', runType).limit(1).single();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (existing) {
+      // 기존 레포트/기사와 합치기 (새 것만 추가)
+      const mergedReports = [...(existing.report_texts || [])];
+      const existingNames = new Set(mergedReports.map(r => r.fileName));
+      for (const r of reportTexts) {
+        if (!existingNames.has(r.fileName)) mergedReports.push(r);
+      }
+      const mergedArticles = [...(existing.article_bodies || [])];
+      const existingUrls = new Set(mergedArticles.map(a => a.url));
+      for (const a of articleBodies) {
+        if (a.url && !existingUrls.has(a.url)) mergedArticles.push(a);
+      }
+      stats.total_reports = mergedReports.length;
+      stats.total_articles = mergedArticles.length;
+
+      const { error } = await supabase.from('telegram_digests')
+        .update({ raw_messages: rawMessages, last_msg_ids: newMsgIds, article_bodies: mergedArticles, report_texts: mergedReports, yahoo_snapshot: yahooSnapshot, stats, collected_at: new Date().toISOString() })
+        .eq('id', existing.id);
+      if (error) return res.status(500).json({ error: error.message });
+    } else {
+      const { error } = await supabase.from('telegram_digests').insert({
+        date_key: dateKey, raw_messages: rawMessages, last_msg_ids: newMsgIds,
+        article_bodies: articleBodies, report_texts: reportTexts, yahoo_snapshot: yahooSnapshot,
+        stats, run_type: runType,
+      });
+      if (error) return res.status(500).json({ error: error.message });
+    }
     return res.status(200).json({ success: true, runType, date: dateKey, stats });
   } catch (e) { return res.status(500).json({ error: e.message }); }
 }
