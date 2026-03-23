@@ -187,7 +187,8 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
   const [lastSaved, setLastSaved] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [toast, setToast] = useState(null);
-  const [toastPersist, setToastPersist] = useState(false); // true = X 버튼으로만 닫힘
+  const [toastPersist, setToastPersist] = useState(false);
+  const [errorDetail, setErrorDetail] = useState(null); // API 에러 상세 팝업
   const toastTimer = useRef(null);
   const [viewMode, setViewMode] = useState("daily");
   const [viewYear, setViewYear] = useState(new Date().getFullYear());
@@ -272,6 +273,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
     }
   };
   const dismissToast = () => { setToast(null); setToastPersist(false); if (toastTimer.current) clearTimeout(toastTimer.current); };
+  const showError = (title, detail) => { setErrorDetail({ title, detail: typeof detail === 'object' ? JSON.stringify(detail, null, 2) : String(detail) }); };
 
   const currentEntry = entries[selectedDate] || emptyEntry();
 
@@ -324,6 +326,23 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
     <div style={S.root}>
       <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
       {toast && <div style={{ ...S.toast, display: "flex", alignItems: "center", gap: 8, paddingRight: 8 }}><span style={{ flex: 1 }}>{toast}</span><button onClick={dismissToast} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", fontSize: 14, cursor: "pointer", padding: "0 4px", lineHeight: 1, flexShrink: 0 }}>✕</button></div>}
+
+      {/* API 에러 상세 팝업 */}
+      {errorDetail && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={() => setErrorDetail(null)}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 24, maxWidth: 500, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#DC2626" }}>⚠️ {errorDetail.title}</h3>
+              <button onClick={() => setErrorDetail(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#8B919E" }}>✕</button>
+            </div>
+            <pre style={{ background: "#F7F8FA", border: "1px solid #E2E4E9", borderRadius: 8, padding: 12, fontSize: 11, color: "#1A1D23", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.5, margin: 0, maxHeight: 400, overflow: "auto", fontFamily: "'JetBrains Mono', monospace" }}>{errorDetail.detail}</pre>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button onClick={() => { navigator.clipboard?.writeText(errorDetail.detail); showToast("에러 복사됨"); }} style={{ padding: "8px 16px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>에러 복사</button>
+              <button onClick={() => setErrorDetail(null)} style={{ padding: "8px 16px", background: "#F7F8FA", border: "1px solid #E2E4E9", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>닫기</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <header style={S.header}>
         <div style={S.headerLeft} onClick={() => setPage("dashboard")} role="button" tabIndex={0}>
@@ -566,10 +585,11 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                   const qMsg = q ? ` (품질 ${q.score}/100${q.issues?.length > 0 ? ', 보완: ' + q.issues.slice(0, 2).join(', ') : ''})` : '';
                   showToast(`✅ 자동입력 완료!${qMsg}`);
                 } else {
-                  showToast("❌ 자동입력 실패: " + (result?.error || "수집된 데이터가 없습니다. 먼저 헤더의 📡 정보 수집 버튼을 눌러주세요."), 0);
+                  showToast("❌ 자동입력 실패 (상세보기 클릭)", 0);
+                  showError("투자일지 자동입력 실패", { error: result?.error, quality: result?.quality, raw: result?.raw });
                 }
               } else showToast("Supabase 연결 필요");
-            } catch (e) { showToast("❌ 자동입력 오류: " + e.message, 0); }
+            } catch (e) { showToast("❌ 자동입력 오류: " + e.message, 0); showError("투자일지 네트워크 오류", e.message); }
           }}>✨ 자동입력</button>
         </div>
         <nav style={S.tabs}>
@@ -1970,11 +1990,11 @@ function ScrapPage({ scraps, setScraps, showToast }) {
                 });
                 showToast(`✅ ${newScraps.length}개 중 새 기사 추가 완료!`);
               } else {
-                const debugInfo = result?.debug || result?.error || `scraps: ${result?.scraps?.length || 0}, count: ${result?.count || 0}`;
-                showToast("❌ 기사 자동정리 실패: " + debugInfo, 0);
+                showToast("❌ 기사 자동정리 실패 (상세보기 클릭)", 0);
+                showError("신문스크랩 자동정리 실패", { error: result?.error, debug: result?.debug, raw: result?.raw, count: result?.count });
               }
             } else showToast("Supabase 연결 필요");
-          } catch (e) { showToast("오류: " + e.message); }
+          } catch (e) { showToast("❌ 오류: " + e.message, 0); showError("신문스크랩 네트워크 오류", e.message); }
         }}>✨ 자동입력</button>
         <button style={{ ...S.scrapAddBtn, flex: 1 }} onClick={() => { resetForm(); setShowForm(true); }}>
           {Icons.plus} 수동 추가
@@ -2776,11 +2796,12 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
                 });
                 showToast(`✅ ${newReports.length}개 중 새 레포트 추가 완료!`);
               } else {
-                const debugInfo = result?.debug || result?.error || `reports: ${result?.reports?.length || 0}, count: ${result?.count || 0}`;
-                showToast("❌ 레포트 자동정리 실패: " + debugInfo, 0);
+                const debugInfo = result?.debug || result?.error || `reports: ${result?.reports?.length || 0}`;
+                showToast("❌ 레포트 자동정리 실패 (상세보기 클릭)", 0);
+                showError("레포트 자동정리 실패", { error: result?.error, debug: result?.debug, timing: result?.timing, raw: result?.raw, count: result?.count, stack: result?.stack });
               }
             } else showToast("Supabase 연결 필요");
-          } catch (e) { showToast("오류: " + e.message); }
+          } catch (e) { showToast("❌ 오류: " + e.message, 0); showError("레포트 네트워크 오류", e.message); }
         }}>✨ 자동입력</button>
         <button style={S.scrapAddBtn} onClick={() => { resetForm(); setShowForm(true); }}>
           {Icons.plus} 수동 추가
