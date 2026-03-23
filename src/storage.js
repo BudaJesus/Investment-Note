@@ -83,7 +83,7 @@ async function callApi(url) {
     }
     return await res.json()
   } catch (e) {
-    if (e.name === 'AbortError') return { success: false, error: 'API 타임아웃 (55초 초과). Vercel Hobby 플랜 제한입니다.' }
+    if (e.name === 'AbortError') return { success: false, error: 'API 타임아웃 (55초 초과). 데이터가 너무 많거나 서버가 느립니다.' }
     return { success: false, error: `네트워크 오류: ${e.message}` }
   }
 }
