@@ -337,6 +337,16 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                 } else { showToast("오류: " + (data.error || "실패")); }
               } catch (e) { showToast("네트워크 오류"); }
             }} title="시장 데이터 수집 (증시/채권/환율/원자재)">수치 갱신</button>
+            <button style={{ ...S.logoutBtn, color: "#7C3AED", borderColor: "rgba(124,58,237,0.3)", fontWeight: 600 }} onClick={async () => {
+              showToast("📡 텔레그램 채널 수집 중...");
+              try {
+                if (window.triggerTelegramDigest) {
+                  const result = await window.triggerTelegramDigest();
+                  if (result?.success) showToast(`✅ 메시지 ${result.stats?.total_messages || 0}개, 기사 ${result.stats?.total_articles || 0}개 수집 완료!`);
+                  else showToast("수집 완료 (새 데이터 없음)");
+                } else showToast("Supabase 연결 필요");
+              } catch (e) { showToast("네트워크 오류"); }
+            }} title="텔레그램 채널 메시지+기사+레포트 수집">📡 정보 수집</button>
           )}
           {onLogout && <button style={S.logoutBtn} onClick={onLogout} title={userEmail}>로그아웃</button>}
           <button style={{ ...S.logoutBtn, fontSize: 10 }} onClick={() => setShowDataMgr(true)} title="데이터 관리">{Icons.layers}</button>
@@ -419,24 +429,42 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
         <div style={S.quickActions}>
           <button style={S.quickBtn} onClick={copyPrev}>{Icons.copy} 전일 데이터 복사</button>
           <button style={S.quickBtn} onClick={() => setSelectedDate(toKey(new Date()))}>{Icons.calendar} 오늘로 이동</button>
-          <button style={{ ...S.quickBtn, color: "#7C3AED", borderColor: "rgba(124,58,237,0.3)", fontWeight: 600 }} onClick={async () => {
-            showToast("📡 텔레그램 수집 중...");
+          <button style={{ ...S.quickBtn, background: "#7C3AED", color: "#fff", borderColor: "#7C3AED", fontWeight: 700, padding: "6px 14px" }} onClick={async () => {
+            showToast("✨ AI 자동입력 중...");
             try {
-              if (window.triggerTelegramDigest) {
-                const result = await window.triggerTelegramDigest();
-                if (result?.success) {
-                  showToast(`✅ ${result.stats?.total_messages || 0}개 메시지 수집 완료!`);
+              if (window.autoFillJournal) {
+                const result = await window.autoFillJournal();
+                if (result?.success && result?.data) {
+                  const d = result.data;
+                  updateEntry((prev) => {
+                    const next = { ...prev };
+                    // marketNotes (빈 칸만)
+                    if (d.marketNotes) {
+                      const mn = { ...(next.marketNotes || {}) };
+                      for (const [country, vals] of Object.entries(d.marketNotes)) {
+                        if (!mn[country]) mn[country] = {};
+                        if (!mn[country].reason && vals.reason) mn[country].reason = vals.reason;
+                        if (!mn[country].outlook && vals.outlook) mn[country].outlook = vals.outlook;
+                      }
+                      next.marketNotes = mn;
+                    }
+                    if (!next.bondOutlook && d.bondOutlook) next.bondOutlook = d.bondOutlook;
+                    if (!next.fxOutlook && d.fxOutlook) next.fxOutlook = d.fxOutlook;
+                    if (!next.commodityOutlook && d.commodityOutlook) next.commodityOutlook = d.commodityOutlook;
+                    if (!next.memo && d.memo) next.memo = d.memo;
+                    // sectors (빈 배열이면)
+                    if ((!next.sectors || next.sectors.length === 0) && d.sectors?.length > 0) next.sectors = d.sectors;
+                    // stocks (빈 배열이면)
+                    if ((!next.stocks || next.stocks.length === 0) && d.stocks?.length > 0) next.stocks = d.stocks;
+                    return next;
+                  });
+                  showToast("✅ 자동입력 완료! 빈 칸이 채워졌습니다.");
                 } else {
-                  showToast("수집 완료 (새 메시지 없음)");
+                  showToast("자동입력 실패: " + (result?.error || "수집된 데이터가 없습니다. 먼저 '📡 정보 수집' 버튼을 눌러주세요."));
                 }
-              } else {
-                showToast("Supabase 연결 필요");
-              }
+              } else showToast("Supabase 연결 필요");
             } catch (e) { showToast("네트워크 오류"); }
-          }}>📡 최신 데이터 가져오기</button>
-        </div>
-        <div style={{ background: "rgba(124,58,237,0.04)", border: "1px solid rgba(124,58,237,0.12)", borderRadius: 5, padding: "5px 10px", marginBottom: 6, fontSize: 9, color: C.textDim, display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ color: "#7C3AED", fontWeight: 600 }}>📡</span>텔레그램 채널에서 새 메시지·기사·리포트를 수집하고, AI가 변동이유·전망을 자동채움합니다. cron: 매일 09:00 / 19:30 KST
+          }}>✨ 자동입력</button>
         </div>
         <nav style={S.tabs}>
           {CATEGORIES.map((cat) => (
@@ -1816,10 +1844,28 @@ function ScrapPage({ scraps, setScraps, showToast }) {
         )}
       </div>
 
-      {/* Add button */}
-      <button style={S.scrapAddBtn} onClick={() => { resetForm(); setShowForm(true); }}>
-        {Icons.plus} 새 스크랩 추가
-      </button>
+      {/* Auto-fill + Add buttons */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <button style={{ ...S.scrapAddBtn, flex: 1, background: "#7C3AED", borderColor: "#7C3AED" }} onClick={async () => {
+          showToast("✨ 기사 자동정리 중...");
+          try {
+            if (window.autoFillScrap) {
+              const result = await window.autoFillScrap();
+              if (result?.success && result?.scraps?.length > 0) {
+                const newScraps = result.scraps.map((s, i) => ({
+                  id: Date.now().toString() + i, title: s.title, url: s.url || '', category: s.category || 'other',
+                  summary: s.summary, date: new Date().toISOString().slice(0, 10), source: 'auto',
+                }));
+                setScraps(prev => [...newScraps, ...prev]);
+                showToast(`✅ ${newScraps.length}개 기사 자동 추가!`);
+              } else showToast("자동정리할 기사가 없습니다. 먼저 '📡 정보 수집'을 실행하세요.");
+            } else showToast("Supabase 연결 필요");
+          } catch (e) { showToast("네트워크 오류"); }
+        }}>✨ 자동입력</button>
+        <button style={{ ...S.scrapAddBtn, flex: 1 }} onClick={() => { resetForm(); setShowForm(true); }}>
+          {Icons.plus} 수동 추가
+        </button>
+      </div>
 
       {/* Form */}
       {showForm && (
@@ -2596,8 +2642,25 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+        <button style={{ ...S.scrapAddBtn, background: "#7C3AED", borderColor: "#7C3AED" }} onClick={async () => {
+          showToast("✨ 레포트 자동정리 중...");
+          try {
+            if (window.autoFillReport) {
+              const result = await window.autoFillReport();
+              if (result?.success && result?.reports?.length > 0) {
+                const newReports = result.reports.map((r, i) => ({
+                  id: Date.now().toString() + i, title: r.title, source: r.source || 'other',
+                  sector: r.sector || 'other', summary: r.summary, stocks: r.stocks || '',
+                  link: '', rating: r.rating || 3, date: r.date || new Date().toISOString().slice(0, 10),
+                }));
+                setReports(prev => [...newReports, ...prev]);
+                showToast(`✅ ${newReports.length}개 레포트 자동 추가!`);
+              } else showToast("자동정리할 레포트가 없습니다. 먼저 '📡 정보 수집'을 실행하세요.");
+            } else showToast("Supabase 연결 필요");
+          } catch (e) { showToast("네트워크 오류"); }
+        }}>✨ 자동입력</button>
         <button style={S.scrapAddBtn} onClick={() => { resetForm(); setShowForm(true); }}>
-          {Icons.plus} 새 레포트 추가
+          {Icons.plus} 수동 추가
         </button>
         <div style={{ display: "flex", gap: 4 }}>
           <button style={{ ...S.catBtn, ...(sortBy === "date" ? S.catBtnActive : {}) }} onClick={() => setSortBy("date")}>최신순</button>
@@ -3066,14 +3129,14 @@ function PortfolioPage({ showToast, autoData }) {
         </div>
         <div style={{ display: "flex", gap: 4 }}>
           <button style={{ background: C.accent, color: "#fff", border: `1px solid ${C.accent}`, borderRadius: 4, padding: "6px 12px", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: C.sans, opacity: generating ? 0.6 : 1 }} onClick={handleGenerate} disabled={generating}>
-            {generating ? "⏳ 수집+분석 중..." : "🔄 데이터 수집 + AI 분석"}
+            {generating ? "⏳ 자동입력 중..." : "✨ 자동입력"}
           </button>
         </div>
       </div>
 
       <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 5, padding: "6px 10px", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ fontSize: 9, color: "#F59E0B", fontWeight: 600 }}>💡 수동 갱신</span>
-        <span style={{ fontSize: 9, color: C.textDim }}>비용 절감을 위해 자동 갱신하지 않습니다. 버튼 클릭 시 ①지수/지표 ②텔레그램 ③AI 분석 순서로 갱신.</span>
+        <span style={{ fontSize: 9, color: "#F59E0B", fontWeight: 600 }}>💡 자동입력 안내</span>
+        <span style={{ fontSize: 9, color: C.textDim }}>수집된 텔레그램 메시지·기사·레포트를 AI가 분석해서 시장전망+종목분석을 채웁니다. 먼저 헤더의 "📡 정보 수집"을 실행하세요.</span>
       </div>
 
       {/* 소스 범례 */}
@@ -3095,9 +3158,9 @@ function PortfolioPage({ showToast, autoData }) {
       {!loading && !outlook && (
         <div style={{ textAlign: "center", padding: "60px 0" }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 6 }}>아직 생성된 포트폴리오가 없습니다</p>
-          <p style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>위 "데이터 수집 + AI 분석" 버튼을 눌러 시장전망과 종목분석을 생성하세요.</p>
+          <p style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>위 "✨ 자동입력" 버튼을 눌러 시장전망과 종목분석을 생성하세요.</p>
           <button style={{ ...S.scrapAddBtn, maxWidth: 280, margin: "0 auto" }} onClick={handleGenerate} disabled={generating}>
-            {generating ? "⏳ 생성 중..." : "🔄 지금 생성하기"}
+            {generating ? "⏳ 자동입력 중..." : "✨ 지금 자동입력"}
           </button>
         </div>
       )}
@@ -3528,6 +3591,20 @@ function ChannelsPage({ showToast }) {
                 <div style={{ fontSize: 12, fontWeight: 600 }}>{ch.name}</div>
                 <div style={{ fontSize: 10, color: C.textDim }}>@{ch.handle}{ch.description ? ` · ${ch.description}` : ""}{ch.subscribers ? ` · ${ch.subscribers}` : ""}</div>
               </div>
+              <select value={ch.category} onChange={async (e) => {
+                const newCat = e.target.value;
+                if (window.updateChannelCategory) {
+                  const ok = await window.updateChannelCategory(ch.handle, newCat);
+                  if (ok) setChannels(prev => prev.map(c => c.handle === ch.handle ? { ...c, category: newCat } : c));
+                }
+              }} style={{ fontSize: 9, padding: "3px 4px", border: `1px solid ${C.border}`, borderRadius: 4, background: C.bg, color: C.textMid, fontFamily: C.sans, cursor: "pointer" }}>
+                <option value="시황/글로벌매크로">시황/글로벌매크로</option>
+                <option value="섹터전문">섹터전문</option>
+                <option value="중국/해외">중국/해외</option>
+                <option value="뉴스/데이터">뉴스/데이터</option>
+                <option value="레포트">레포트</option>
+                <option value="기타">기타</option>
+              </select>
             </div>
           ))}
         </div>
