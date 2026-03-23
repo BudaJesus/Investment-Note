@@ -1962,8 +1962,13 @@ function ScrapPage({ scraps, setScraps, showToast }) {
                   id: Date.now().toString() + i, title: s.title, url: s.url || '', category: s.category || 'other',
                   summary: s.summary, createdAt: new Date().toISOString().slice(0, 10), updatedAt: new Date().toISOString().slice(0, 10), source: 'auto', channel: s.channel || '',
                 }));
-                setScraps(prev => [...newScraps, ...prev]);
-                showToast(`✅ ${newScraps.length}개 기사 자동 추가!`);
+                // 기존 스크랩과 중복 체크 (제목 기준) + 추가
+                setScraps(prev => {
+                  const existingTitles = new Set(prev.map(s => s.title?.toLowerCase().trim()));
+                  const uniqueNew = newScraps.filter(s => !existingTitles.has(s.title?.toLowerCase().trim()));
+                  return [...uniqueNew, ...prev];
+                });
+                showToast(`✅ ${newScraps.length}개 중 새 기사 추가 완료!`);
               } else {
                 const debugInfo = result?.debug || result?.error || `scraps: ${result?.scraps?.length || 0}, count: ${result?.count || 0}`;
                 showToast("❌ 기사 자동정리 실패: " + debugInfo, 0);
@@ -2652,7 +2657,7 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
   };
 
   const editReport = (r) => {
-    setForm({ title: r.title, source: r.source || "other", sector: r.sector || "other", stocks: (r.stocks || []).join(", "), link: r.link || "", summary: r.summary || "", rating: r.rating || 3, date: r.date || r.createdAt });
+    setForm({ title: r.title, source: r.source || "other", sector: r.sector || "other", stocks: (typeof r.stocks === 'string' ? r.stocks : Array.isArray(r.stocks) ? r.stocks.join(", ") : ""), link: r.link || "", summary: r.summary || "", rating: r.rating || 3, date: r.date || r.createdAt });
     setEditingId(r.id);
     setShowForm(true);
   };
@@ -2666,7 +2671,7 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
     if (filterDate) list = list.filter((r) => (r.date || r.createdAt || "").startsWith(filterDate));
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      list = list.filter((r) => r.title.toLowerCase().includes(q) || r.summary?.toLowerCase().includes(q) || r.stocks?.some((s) => s.toLowerCase().includes(q)));
+      list = list.filter((r) => r.title.toLowerCase().includes(q) || r.summary?.toLowerCase().includes(q) || (typeof r.stocks === 'string' ? r.stocks.toLowerCase().includes(q) : Array.isArray(r.stocks) ? r.stocks.some((s) => s.toLowerCase().includes(q)) : false));
     }
     if (sortBy === "date") list = [...list].sort((a, b) => (b.date || b.createdAt || "").localeCompare(a.date || a.createdAt || ""));
     else if (sortBy === "rating") list = [...list].sort((a, b) => (b.rating || 0) - (a.rating || 0));
@@ -2760,10 +2765,16 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
                 const newReports = result.reports.map((r, i) => ({
                   id: Date.now().toString() + i, title: r.title, source: r.source || 'other',
                   sector: r.sector || 'other', summary: r.summary, stocks: r.stocks || '',
+                  analyst: r.analyst || '', target_price: r.target_price || '', opinion: r.opinion || '',
                   link: '', rating: r.rating || 3, date: r.date || new Date().toISOString().slice(0, 10),
                 }));
-                setReports(prev => [...newReports, ...prev]);
-                showToast(`✅ ${newReports.length}개 레포트 자동 추가!`);
+                // 기존 레포트와 중복 체크 (제목 기준) + 추가
+                setReports(prev => {
+                  const existingTitles = new Set(prev.map(r => r.title?.toLowerCase().trim()));
+                  const uniqueNew = newReports.filter(r => !existingTitles.has(r.title?.toLowerCase().trim()));
+                  return [...uniqueNew, ...prev];
+                });
+                showToast(`✅ ${newReports.length}개 중 새 레포트 추가 완료!`);
               } else {
                 const debugInfo = result?.debug || result?.error || `reports: ${result?.reports?.length || 0}, count: ${result?.count || 0}`;
                 showToast("❌ 레포트 자동정리 실패: " + debugInfo, 0);
@@ -2867,9 +2878,9 @@ function ReportArchivePage({ reports, setReports, customSectors, setCustomSector
               </a>
             )}
             {r.summary && <p style={S.scrapSummary}>{r.summary}</p>}
-            {r.stocks?.length > 0 && (
+            {r.stocks && (typeof r.stocks === 'string' ? r.stocks : Array.isArray(r.stocks) ? r.stocks.join(', ') : '').length > 0 && (
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-                {r.stocks.map((s, i) => <span key={i} style={{ ...S.scrapTag, color: "#0E9F6E" }}>{s}</span>)}
+                {(typeof r.stocks === 'string' ? r.stocks.split(',').map(s => s.trim()).filter(Boolean) : Array.isArray(r.stocks) ? r.stocks : []).map((s, i) => <span key={i} style={{ ...S.scrapTag, color: "#0E9F6E" }}>{s}</span>)}
               </div>
             )}
           </div>
