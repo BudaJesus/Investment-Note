@@ -3,18 +3,28 @@ import { createClient } from '@supabase/supabase-js';
 const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 async function callClaude(systemPrompt, userPrompt, maxTokens = 8000) {
-  const body = { model: 'claude-sonnet-4-20250514', max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] };
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Claude API ${res.status}: ${errText.slice(0, 300)}`);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] }),
+      });
+      if (res.status === 502 || res.status === 503 || res.status === 529) {
+        console.log('Claude API ' + res.status + ', retry ' + attempt + '/3...');
+        await new Promise(r => setTimeout(r, 3000 * attempt));
+        continue;
+      }
+      if (!res.ok) { const errText = await res.text().catch(() => ''); throw new Error('Claude API ' + res.status + ': ' + errText.slice(0, 300)); }
+      const data = await res.json();
+      return data?.content?.[0]?.text || '';
+    } catch (e) {
+      if (attempt === 3) throw e;
+      if (e.message?.includes('502') || e.message?.includes('503')) { await new Promise(r => setTimeout(r, 3000 * attempt)); continue; }
+      throw e;
+    }
   }
-  const data = await res.json();
-  return data?.content?.[0]?.text || '';
+  throw new Error('Claude API 3회 재시도 실패');
 }
 
 async function gatherData() {

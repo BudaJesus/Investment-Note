@@ -3,14 +3,28 @@ import { createClient } from '@supabase/supabase-js';
 const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 async function callClaude(systemPrompt, userPrompt, maxTokens = 8000) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] }),
-  });
-  if (!res.ok) { const errText = await res.text().catch(() => ""); throw new Error(`Claude API ${res.status}: ${errText.slice(0, 300)}`); }
-  const data = await res.json();
-  return data?.content?.[0]?.text || '';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] }),
+      });
+      if (res.status === 502 || res.status === 503 || res.status === 529) {
+        console.log('Claude API ' + res.status + ', retry ' + attempt + '/3...');
+        await new Promise(r => setTimeout(r, 3000 * attempt));
+        continue;
+      }
+      if (!res.ok) { const errText = await res.text().catch(() => ''); throw new Error('Claude API ' + res.status + ': ' + errText.slice(0, 300)); }
+      const data = await res.json();
+      return data?.content?.[0]?.text || '';
+    } catch (e) {
+      if (attempt === 3) throw e;
+      if (e.message?.includes('502') || e.message?.includes('503')) { await new Promise(r => setTimeout(r, 3000 * attempt)); continue; }
+      throw e;
+    }
+  }
+  throw new Error('Claude API 3회 재시도 실패');
 }
 
 export default async function handler(req, res) {
@@ -27,6 +41,17 @@ export default async function handler(req, res) {
     const mv = outlook.market_view;
     const stocks = [...(mv.domestic_stocks || []), ...(mv.overseas_stocks || [])];
     if (stocks.length === 0) return res.status(400).json({ error: '포트폴리오에 편입된 종목이 없습니다.' });
+
+    // Top-Down 컨텍스트: 매크로 → 섹터/테마 → 종목 연결
+    const macroContext = {};
+    if (mv.macro) {
+      for (const [k, v] of Object.entries(mv.macro)) {
+        macroContext[k] = typeof v === 'string' ? v.slice(0, 300) : (v?.text || '').slice(0, 300);
+      }
+    }
+    const themes = (mv.themes || []).map(t => `${t.name}(${t.tag}): ${t.description?.slice(0, 100) || ''}`).join('\n');
+    const allocation = mv.allocation ? JSON.stringify(mv.allocation) : '';
+    const fxText = typeof mv.fx === 'string' ? mv.fx.slice(0, 200) : (mv.fx?.text || '').slice(0, 200);
 
     // raw_messages는 최신 1개만 (수백KB)
     const { data: recentDigests } = await supabase.from('telegram_digests')
@@ -93,22 +118,41 @@ export default async function handler(req, res) {
     } catch (e) {}
 
     const systemPrompt = `당신은 증권사 리서치센터 시니어 애널리스트입니다.
-포트폴리오 편입 종목의 상세 분석을 작성합니다.
 
-# 절대 규칙
-1. 텔레그램 채널과 기사/레포트에 있는 정보를 최우선으로 사용하세요.
-   데이터는 시간순([날짜] 라벨)으로 정렬되어 있습니다. 최신 정보에 가중치를 두되, 이전 대비 변화도 반영하세요.
-   메시지/기사는 최근 7일, 레포트는 최근 30일치가 포함되어 있습니다.
-2. 각 종목당 반드시 포함: 기업개요(3~4문장) · 대표제품 · 주가/시총/PER/PEG/영업이익/목표가 · 투자포인트 3개(각 3~4문장) · 리스크 3개 · **왜 이 종목인가(why_this_stock)**: 같은 섹터/산업의 경쟁사 대비 이 종목을 선택한 구체적 이유 3~5문장(PER/PBR/성장률 비교 수치 포함)
-3. 투자포인트는 구체적 수치와 인과관계를 포함하세요. "성장하고 있다" 같은 뻔한 말 금지.
-4. 텔레그램 정보가 부족한 종목은 당신의 지식으로 보완하되, 문장 끝에 [AI 보완]을 붙이세요.
-5. source_tags: "tg"(텔레그램 소스 있음), "report"(레포트 소스 있음), "article"(기사), "ai"(AI 보완)
+# Top-Down 분석 원칙 (절대 규칙)
+종목분석은 반드시 시장전망의 매크로/섹터 판단과 연결되어야 합니다:
+매크로 전망 → 유망 섹터/테마 → 종목 선정 이유
 
-${feedbackStr ? `[피드백 루프]\n${feedbackStr}` : ''}
+예시: "글로벌 AI CapEx 확대 (매크로) → 반도체/광통신 섹터 비중확대 (섹터) → 삼성전자는 HBM3E 수혜 (종목)"
 
-JSON으로만 응답하세요.`;
+# 종목별 필수 포함 사항
+1. 기업개요(3~4문장) · 대표제품 · 주가/시총/PER/PEG/영업이익/목표가
+2. **매크로 연결**: 이 종목이 시장전망의 어떤 매크로 판단/섹터 테마와 연결되는지 명시
+3. 투자포인트 3개(각 3~4문장, 구체적 수치 필수)
+4. 리스크 3개
+5. **왜 이 종목인가(why_this_stock)**: 같은 섹터 경쟁사 대비 이 종목을 선택한 이유 (PER/PBR/성장률 비교)
+6. source_tags: "tg"/"report"/"article"/"ai"
 
-    const userPrompt = `## 분석 대상 종목 (시장전망 포트폴리오에서 추출)
+텔레그램 정보 부족 시 [AI 보완] 표시. JSON으로만 응답.
+
+${feedbackStr ? `[피드백 루프]\n${feedbackStr}` : ''}`;
+
+    const userPrompt = `## 시장전망 요약 (Top-Down 컨텍스트 — 종목분석의 근거)
+### 국가별 매크로 전망
+${Object.entries(macroContext).map(([k, v]) => `[${k}] ${v}`).join('\n')}
+
+### 추천 섹터/테마
+${themes || '없음'}
+
+### 자산배분
+${allocation || '없음'}
+
+### 환율 전망
+${fxText || '없음'}
+
+---
+
+## 분석 대상 종목 (위 매크로/섹터와 연결하여 분석)
 ${JSON.stringify(stocks, null, 1)}
 
 ## 텔레그램 메시지 (${allMsgs.length}개)
