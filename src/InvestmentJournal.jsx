@@ -320,7 +320,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
           </div>
         </div>
         <div style={S.headerActions}>
-          {userEmail === "younjino8755@gmail.com" && (
+          {userEmail === "younjino8755@gmail.com" && (<>
             <button style={{ ...S.logoutBtn, color: C.up, borderColor: C.up + "40" }} onClick={async () => {
               showToast("이전 수집 데이터 정리 중...");
               try {
@@ -347,7 +347,7 @@ export default function InvestmentJournal({ onLogout, userEmail } = {}) {
                 } else showToast("Supabase 연결 필요");
               } catch (e) { showToast("네트워크 오류"); }
             }} title="텔레그램 채널 메시지+기사+레포트 수집">📡 정보 수집</button>
-          )}
+          </>)}
           {onLogout && <button style={S.logoutBtn} onClick={onLogout} title={userEmail}>로그아웃</button>}
           <button style={{ ...S.logoutBtn, fontSize: 10 }} onClick={() => setShowDataMgr(true)} title="데이터 관리">{Icons.layers}</button>
         </div>
