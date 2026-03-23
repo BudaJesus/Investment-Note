@@ -8,7 +8,7 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 8000) {
     headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] }),
   });
-  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
+  if (!res.ok) { const errText = await res.text().catch(() => ""); throw new Error(`Claude API ${res.status}: ${errText.slice(0, 300)}`); }
   const data = await res.json();
   return data?.content?.[0]?.text || '';
 }
