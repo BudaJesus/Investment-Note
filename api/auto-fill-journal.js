@@ -149,7 +149,7 @@ reason은 주요국가(미국·한국) 6~10문장, 기타국가 4~6문장. outlo
 
     // ── 1차 Claude 호출 ──
     let parsed = await callAndParse(systemPrompt, userPrompt, 8000);
-    if (!parsed) return res.status(500).json({ error: 'Claude 응답 파싱 실패' });
+    if (!parsed || parsed.__parseError) return res.status(500).json({ error: 'Claude 응답 파싱 실패', raw: parsed?.raw || 'no response' });
 
     // ── 데이터 구조 검증/교정 ──
     parsed = validateAndFix(parsed);
@@ -189,14 +189,32 @@ async function callAndParse(systemPrompt, userPrompt, maxTokens) {
   try {
     const result = await callClaude(systemPrompt, userPrompt, maxTokens);
     let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    try { return JSON.parse(cleaned); } catch (e1) {
-      try {
-        const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
-        if (s >= 0 && e > s) return JSON.parse(cleaned.slice(s, e + 1));
-      } catch (e2) {}
-    }
-    return null;
-  } catch (e) { return null; }
+    
+    // 1차: 그대로 파싱
+    try { return JSON.parse(cleaned); } catch (e1) {}
+    
+    // 2차: 제어 문자 제거 후 재시도
+    try {
+      cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, ' ');
+      return JSON.parse(cleaned);
+    } catch (e2) {}
+    
+    // 3차: 객체 시작~끝 추출
+    try {
+      const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+      if (s >= 0 && e > s) return JSON.parse(cleaned.slice(s, e + 1));
+    } catch (e3) {}
+    
+    // 4차: 줄바꿈/탭 정리 후 재시도
+    try {
+      const sanitized = cleaned.replace(/\n/g, ' ').replace(/\t/g, ' ').replace(/\r/g, '');
+      const s = sanitized.indexOf('{'), e = sanitized.lastIndexOf('}');
+      if (s >= 0 && e > s) return JSON.parse(sanitized.slice(s, e + 1));
+    } catch (e4) {}
+    
+    // 전부 실패 — raw 반환용
+    return { __parseError: true, raw: cleaned.slice(0, 500) };
+  } catch (e) { return { __parseError: true, raw: e.message }; }
 }
 
 // ── 데이터 구조 검증/교정 ──
