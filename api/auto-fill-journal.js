@@ -132,7 +132,7 @@ ${reportContent}
     const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const parsed = JSON.parse(cleaned);
 
-    return res.status(200).json({ success: true, data: parsed });
+    return res.status(200).json({ success: true, data: parsed, yahoo: yahooSnapshot });
   } catch (e) {
     console.error('auto-fill-journal error:', e);
     return res.status(500).json({ error: e.message });
