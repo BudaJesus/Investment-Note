@@ -73,17 +73,17 @@ window.getTodayDigests = getTodayDigests
 async function callApi(url) {
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 55000) // 55초 타임아웃
+    const timeout = setTimeout(() => controller.abort(), 120000) // 120초 (서버 60초 + 여유)
     const res = await fetch(url, { signal: controller.signal })
     clearTimeout(timeout)
     if (!res.ok) {
       let errBody = ''
       try { errBody = JSON.stringify(await res.json()) } catch (e) { errBody = await res.text().catch(() => '') }
-      return { success: false, error: `HTTP ${res.status}: ${errBody.slice(0, 200)}` }
+      return { success: false, error: `HTTP ${res.status}: ${errBody.slice(0, 300)}` }
     }
     return await res.json()
   } catch (e) {
-    if (e.name === 'AbortError') return { success: false, error: 'API 타임아웃 (55초 초과). 데이터가 너무 많거나 서버가 느립니다.' }
+    if (e.name === 'AbortError') return { success: false, error: 'API 타임아웃 (120초 초과).' }
     return { success: false, error: `네트워크 오류: ${e.message}` }
   }
 }
