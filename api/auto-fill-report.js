@@ -15,21 +15,26 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 6000) {
 
 export default async function handler(req, res) {
   try {
+    const t0 = Date.now();
     // 30일치 레포트 텍스트
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const { data: reportDigests } = await supabase.from('telegram_digests')
       .select('report_texts, date_key')
       .gte('collected_at', thirtyDaysAgo.toISOString())
-      .order('collected_at', { ascending: true }).limit(30);
+      .order('collected_at', { ascending: true }).limit(15);
 
+    const t1 = Date.now();
     // 7일치 메시지 (레포트 관련)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const { data: msgDigests } = await supabase.from('telegram_digests')
       .select('raw_messages, date_key')
       .gte('collected_at', sevenDaysAgo.toISOString())
-      .order('collected_at', { ascending: true }).limit(10);
+      .order('collected_at', { ascending: false }).limit(3);
+
+    const t2 = Date.now();
+    console.log(`[report] DB queries: ${t1-t0}ms + ${t2-t1}ms`);
 
     // 레포트 텍스트 수집
     const allReports = [];
@@ -55,11 +60,11 @@ export default async function handler(req, res) {
     }
 
     const content = [
-      allReports.length > 0 ? `=== PDF 레포트 (${allReports.length}개, 30일치) ===` : '',
-      ...allReports.slice(0, 10).map(r => `[${r.date}][파일: ${r.fileName}]\n${r.text.slice(0, 2000)}`),
+      allReports.length > 0 ? `=== PDF 레포트 (${allReports.length}개) ===` : '',
+      ...allReports.slice(0, 5).map(r => `[${r.date}][파일: ${r.fileName}]\n${r.text.slice(0, 1500)}`),
       reportMsgs.length > 0 ? `\n=== 레포트 관련 메시지 (${reportMsgs.length}개) ===` : '',
-      ...reportMsgs.slice(0, 40),
-    ].filter(Boolean).join('\n---\n').slice(0, 40000);
+      ...reportMsgs.slice(0, 25),
+    ].filter(Boolean).join('\n---\n').slice(0, 20000);
 
     const systemPrompt = `당신은 증권사 리서치 편집자입니다.
 
@@ -77,7 +82,11 @@ JSON 배열로만 응답하세요.`;
 
     const userPrompt = `${content}\n\nJSON 배열:\n[\n  { "title": "리포트 제목", "source": "증권사id", "sector": "섹터id", "analyst": "애널리스트명", "summary": "핵심논점+데이터+투자의견+목표가+결론 빠짐없이 정리. 10~20문장.", "stocks": "관련종목(쉼표구분)", "target_price": "목표가", "opinion": "매수/중립/매도", "rating": 3, "date": "${new Date().toISOString().slice(0,10)}" }\n]`;
 
-    const result = await callClaude(systemPrompt, userPrompt, 6000);
+    const t3 = Date.now();
+    console.log(`[report] Data prep: ${t3-t2}ms, content: ${content.length} chars, reports: ${allReports.length}, msgs: ${reportMsgs.length}`);
+    const result = await callClaude(systemPrompt, userPrompt, 4000);
+    const t4 = Date.now();
+    console.log(`[report] Claude call: ${t4-t3}ms, response: ${result.length} chars`);
     let cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     
     let reports;
@@ -100,9 +109,10 @@ JSON 배열로만 응답하세요.`;
       date: String(r.date || new Date().toISOString().slice(0, 10)),
     }));
 
-    return res.status(200).json({ success: true, reports, count: reports.length });
+    const t5 = Date.now();
+    return res.status(200).json({ success: true, reports, count: reports.length, timing: { db: `${t2-t0}ms`, claude: `${t4-t3}ms`, total: `${t5-t0}ms` } });
   } catch (e) {
     console.error('auto-fill-report error:', e);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: `${e.message} (시간: ${Date.now()}ms)`, stack: e.stack?.slice(0, 200) });
   }
 }
