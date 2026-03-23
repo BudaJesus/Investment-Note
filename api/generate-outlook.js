@@ -109,116 +109,6 @@ ${reportStr.slice(0, 10000)}
   try { return JSON.parse(result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()); }
   catch (e) { return null; }
 }
-
-// ═══ 종목분석 생성 (금융권면접 HTML 양식) ═══
-async function generateStockAnalysis(data, marketView) {
-  const { digest, feedback } = data;
-  const raw = digest?.raw_messages || {};
-  const articles = digest?.article_bodies || [];
-  const reports = digest?.report_texts || [];
-  const feedbackStr = feedback?.prompt_injection || '';
-
-  const allMsgs = [];
-  for (const [handle, msgs] of Object.entries(raw)) {
-    for (const msg of msgs) allMsgs.push(`[${handle}] ${msg.text.slice(0, 400)}`);
-  }
-
-  const stocks = [...(marketView?.domestic_stocks || []), ...(marketView?.overseas_stocks || [])];
-
-  const systemPrompt = `당신은 증권사 리서치센터 애널리스트입니다. 포트폴리오 편입 종목의 상세 분석을 작성합니다.
-
-반드시 포함할 항목 (종목당):
-- 기업개요 (3~4문장: 사업 영역, 시장 점유율, 시총, 직원수)
-- 대표 제품/서비스 (구체적 제품명 나열)
-- 재무 데이터 (주가, 시총, PER TTM/Forward, PEG, 영업이익 실적/전망, 목표가, OPM)
-- 투자포인트 3개 (각 3~4문장, 구체적 수치 포함)
-- 리스크 (3개, 구체적)
-- source_tags: 텔레그램/리포트/기사/AI 중 해당 소스 표시
-
-수집된 텔레그램 메시지와 기사/레포트를 최우선 활용하세요.
-JSON으로만 응답하세요.
-
-${feedbackStr ? `[피드백 루프]\n${feedbackStr}` : ''}`;
-
-  const userPrompt = `## 편입 종목
-${JSON.stringify(stocks, null, 1)}
-
-## 텔레그램 메시지 (${allMsgs.length}개)
-${allMsgs.slice(0, 40).join('\n---\n').slice(0, 20000)}
-
-## 기사 원문 (${articles.length}개)
-${articles.slice(0, 10).map(a => `[${a.title}] ${a.body.slice(0, 800)}`).join('\n---\n').slice(0, 15000)}
-
-## 레포트 (${reports.length}개)
-${reports.slice(0, 5).map(r => `[${r.fileName}] ${r.text.slice(0, 600)}`).join('\n---\n').slice(0, 8000)}
-
----
-
-아래 JSON을 작성하세요:
-
-{
-  "peg_table": [
-    { "name": "코스피 전체", "fwd_per": 13, "eps_growth": 47, "peg": 0.28, "verdict": "극저평가" },
-    { "name": "S&P500", "fwd_per": 21, "eps_growth": 13, "peg": 1.6, "verdict": "적정~고평가" }
-  ],
-  "sectors": [
-    {
-      "name": "반도체",
-      "peg": 0.10,
-      "peg_verdict": "극저평가",
-      "stocks": [
-        {
-          "name": "삼성전자", "ticker": "005930", "market": "KRX",
-          "weight_pct": 10,
-          "overview": "기업개요 3~4문장 (사업영역, 시장점유율, 시총, 직원수 포함)",
-          "products": "HBM3E · 2나노 GAA 파운드리 · 갤럭시 S26 · HBM4",
-          "price": "188,000원", "market_cap": "1,120조",
-          "per_ttm": "24.9", "per_fwd": "~10", "peg": 0.25,
-          "op_profit": "52.4조 (2025)", "op_profit_estimate": "148~200조 (2026E)",
-          "opm": "15.2%",
-          "target_price": "236,000~260,000",
-          "analyst_consensus": "35명 전원 매수",
-          "invest_points": [
-            "① HBM 슈퍼사이클 최대 수혜. (3~4문장 상세 설명, 구체적 수치)",
-            "② 사상 최대 실적. (3~4문장)",
-            "③ 밸류업+코리아 디스카운트 해소. (3~4문장)"
-          ],
-          "risks": "HBM3E 납품 지연 · 미국 관세/수출 규제 · 파운드리 2나노 수율",
-          "naver_link": "https://finance.naver.com/item/main.naver?code=005930",
-          "source_tags": ["tg", "report"]
-        }
-      ]
-    }
-  ],
-  "overseas": [
-    {
-      "name": "해외 AI빅테크+에너지+배당",
-      "peg": 1.6, "peg_verdict": "적정",
-      "stocks": [
-        {
-          "name": "엔비디아", "ticker": "NVDA", "market": "NASDAQ",
-          "weight_pct": 7,
-          "overview": "기업개요 3~4문장",
-          "products": "H100/H200 · Blackwell Ultra · DGX SuperPOD · DRIVE",
-          "price": "~$120",
-          "revenue_quarterly": "$260억+", "fcf_quarterly": "$200억+",
-          "per_fwd": 40, "peg": 0.80,
-          "invest_points": ["① 포인트 3~4문장", "② 포인트", "③ 포인트"],
-          "risks": "밸류에이션 부담 · AMD/인텔 경쟁 · AI 사이클 피크 우려",
-          "source_tags": ["tg", "ai"]
-        }
-      ]
-    }
-  ]
-}
-
-반도체, 조선방산, 전력기기, 자동차, 바이오 등 국내 편입 종목 전체 + 해외 종목 전체를 빠짐없이 작성하세요.`;
-
-  const result = await callClaude(systemPrompt, userPrompt, 8000);
-  try { return JSON.parse(result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()); }
-  catch (e) { return null; }
-}
-
 // ═══ API Handler — 포트폴리오 "자동입력" 버튼 ═══
 export default async function handler(req, res) {
   try {
@@ -230,7 +120,8 @@ export default async function handler(req, res) {
     const marketView = await generateMarketView(data);
     if (!marketView) return res.status(500).json({ error: 'Market view generation failed' });
 
-    const stockAnalysis = await generateStockAnalysis(data, marketView);
+    // 종목분석은 별도 API (generate-stock-analysis.js)에서 처리
+    // 시장전망만 저장하고, 종목분석은 클라이언트에서 순차 호출
 
     let version = 1;
     try {
@@ -241,7 +132,7 @@ export default async function handler(req, res) {
 
     await supabase.from('outlooks').insert({
       user_id: userId, date_key: dateKey,
-      market_view: marketView, stock_analysis: stockAnalysis || {},
+      market_view: marketView, stock_analysis: {},
       sources: { digest_id: data.digest?.id || null },
       source_tags: marketView?.macro ? Object.fromEntries(Object.entries(marketView.macro).map(([k, v]) => [k, v.sources || ['ai']])) : {},
       version,
@@ -255,6 +146,6 @@ export default async function handler(req, res) {
       })));
     }
 
-    return res.status(200).json({ success: true, date: dateKey, version, hasMarketView: !!marketView, hasStockAnalysis: !!stockAnalysis });
+    return res.status(200).json({ success: true, date: dateKey, version, hasMarketView: !!marketView, step: 'market_view_done' });
   } catch (e) { return res.status(500).json({ error: e.message }); }
 }

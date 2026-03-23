@@ -41,7 +41,8 @@ export default async function handler(req, res) {
     }
 
     if (allMessages.length === 0 && allArticles.length === 0) {
-      return res.status(400).json({ error: '수집된 메시지가 없습니다. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
+      // 메시지도 기사도 없으면 — 그래도 시도는 해봄
+      return res.status(200).json({ success: true, scraps: [], count: 0, debug: 'No messages or articles found in last 3 digests. digest_count=' + (digests?.length || 0) });
     }
 
     // 메시지에서 뉴스성 내용 추출 (대부분의 텔레그램 채널이 뉴스 요약을 직접 올림)

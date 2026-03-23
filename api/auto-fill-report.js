@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     }
 
     if (allReports.length === 0 && reportMessages.length === 0) {
-      return res.status(400).json({ error: '수집된 레포트 관련 메시지가 없습니다. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
+      return res.status(200).json({ success: true, reports: [], count: 0, debug: 'No reports or report-related messages found in last 3 digests. digest_count=' + (digests?.length || 0) });
     }
 
     const content = [
