@@ -16,13 +16,13 @@ async function callClaude(systemPrompt, userPrompt, maxTokens = 8000) {
 export default async function handler(req, res) {
   try {
     // 최근 7일치 digest 전부 가져오기 (시간순)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     const { data: digests } = await supabase.from('telegram_digests')
-      .select('*')
-      .gte('collected_at', sevenDaysAgo.toISOString())
-      .order('collected_at', { ascending: true }) // 오래된 것 → 최신
-      .limit(20);
+      .select('raw_messages, article_bodies, report_texts, yahoo_snapshot, date_key')
+      .gte('collected_at', threeDaysAgo.toISOString())
+      .order('collected_at', { ascending: false })
+      .limit(5);
     if (!digests || digests.length === 0) return res.status(400).json({ error: '수집된 데이터가 없습니다. 헤더의 📡 정보 수집 버튼을 먼저 눌러주세요.' });
 
     const allMessages = [];
@@ -52,8 +52,8 @@ export default async function handler(req, res) {
     }
 
     // 최신 80개 메시지 (뒤쪽이 최신)
-    const msgContent = allMessages.slice(-80).join('\n---\n').slice(0, 60000);
-    const articleContent = allArticles.slice(0, 15).map(a => `[기사: ${a.title}]\n${a.body.slice(0, 2000)}`).join('\n===\n').slice(0, 30000);
+    const msgContent = allMessages.slice(-50).join('\n---\n').slice(0, 25000);
+    const articleContent = allArticles.slice(0, 8).map(a => `[기사: ${a.title}]\n${a.body.slice(0, 1000)}`).join('\n===\n').slice(0, 12000);
     const reportContent = allReports.slice(0, 5).map(r => `[${r.fileName}]\n${r.text.slice(0, 1500)}`).join('\n===\n').slice(0, 10000);
 
     const systemPrompt = `당신은 증권사 리서치센터 소속 시니어 스트래티지스트입니다.

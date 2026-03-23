@@ -20,29 +20,27 @@ async function gatherData() {
     const { data } = await supabase.from('auto_data').select('yahoo_data, investing_data').order('date_key', { ascending: false }).limit(1).single();
     if (data) { result.yahooData = data.yahoo_data || {}; result.investingData = data.investing_data || {}; }
   } catch (e) {}
-  // 2. telegram_digests — 최근 7일치 전부 (메시지/기사용)
+  // 2. telegram_digests — 최근 3일치 (raw_messages가 크므로 적게)
   try {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     const { data } = await supabase.from('telegram_digests')
-      .select('*')
-      .gte('collected_at', sevenDaysAgo.toISOString())
-      .order('collected_at', { ascending: true }) // 시간순 정렬 (오래된 것 → 최신)
-      .limit(20);
-    if (data) result.digests = data;
+      .select('raw_messages, article_bodies, yahoo_snapshot, date_key')
+      .gte('collected_at', threeDaysAgo.toISOString())
+      .order('collected_at', { ascending: false }) // 최신부터
+      .limit(5);
+    if (data) result.digests = data.reverse(); // 시간순으로 뒤집기
   } catch (e) {}
-  // 2-1. 레포트는 30일치 별도 수집 (레포트는 오래돼도 유효)
+  // 2-1. 레포트는 14일치 별도 (report_texts만, 가벼움)
   try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
     const { data } = await supabase.from('telegram_digests')
       .select('report_texts, date_key')
-      .gte('collected_at', thirtyDaysAgo.toISOString())
+      .gte('collected_at', fourteenDaysAgo.toISOString())
       .order('collected_at', { ascending: true })
-      .limit(50);
-    if (data) {
-      result.reportDigests = data;
-    }
+      .limit(15);
+    if (data) result.reportDigests = data;
   } catch (e) {}
   // 3. 피드백 루프
   try {
@@ -116,9 +114,9 @@ async function generateMarketView(data) {
   const feedbackStr = feedback?.prompt_injection || '';
 
   // 시간순 메시지 구성 (날짜 라벨 포함)
-  const msgContent = allMessages.slice(-80).map(m => `[${m.date}][${m.handle}] ${m.text.slice(0, 600)}`).join('\n---\n').slice(0, 50000);
-  const articleStr = allArticles.slice(-15).map(a => `[${a.date}][기사: ${a.title}]\n${a.body.slice(0, 1200)}`).join('\n---\n').slice(0, 20000);
-  const reportStr = allReports.slice(-5).map(r => `[${r.date}][레포트: ${r.fileName}]\n${r.text.slice(0, 800)}`).join('\n---\n').slice(0, 10000);
+  const msgContent = allMessages.slice(-50).map(m => `[${m.date}][${m.handle}] ${m.text.slice(0, 400)}`).join('\n---\n').slice(0, 20000);
+  const articleStr = allArticles.slice(-10).map(a => `[${a.date}][기사: ${a.title}]\n${a.body.slice(0, 800)}`).join('\n---\n').slice(0, 10000);
+  const reportStr = allReports.slice(-5).map(r => `[${r.date}][레포트: ${r.fileName}]\n${r.text.slice(0, 600)}`).join('\n---\n').slice(0, 5000);
 
   const systemPrompt = `당신은 증권사 수석 스트래티지스트입니다. 최근 7일간 축적된 텔레그램 채널 메시지, 뉴스 기사, 증권사 리포트를 시간순으로 종합 분석하여 Top-Down 시장전망을 작성합니다.
 

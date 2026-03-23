@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     if (!userId) return res.status(400).json({ error: 'user_id required' });
 
     // 1. 최신 outlook에서 시장전망의 종목 리스트 가져오기
-    const { data: outlook } = await supabase.from('outlooks').select('*')
+    const { data: outlook } = await supabase.from('outlooks').select('id, market_view')
       .eq('user_id', userId).order('generated_at', { ascending: false }).limit(1).single();
 
     if (!outlook?.market_view) return res.status(400).json({ error: '시장전망이 없습니다. 포트폴리오 자동입력을 먼저 실행하세요.' });
@@ -28,22 +28,22 @@ export default async function handler(req, res) {
     const stocks = [...(mv.domestic_stocks || []), ...(mv.overseas_stocks || [])];
     if (stocks.length === 0) return res.status(400).json({ error: '포트폴리오에 편입된 종목이 없습니다.' });
 
-    // 2. 텔레그램 데이터 — 7일 메시지+기사, 30일 레포트
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    // 2. 텔레그램 데이터 — 3일 메시지+기사, 14일 레포트
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     const { data: recentDigests } = await supabase.from('telegram_digests')
-      .select('raw_messages, article_bodies, report_texts, date_key')
-      .gte('collected_at', sevenDaysAgo.toISOString())
-      .order('collected_at', { ascending: true })
-      .limit(20);
+      .select('raw_messages, article_bodies, date_key')
+      .gte('collected_at', threeDaysAgo.toISOString())
+      .order('collected_at', { ascending: false })
+      .limit(3);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
     const { data: reportDigests } = await supabase.from('telegram_digests')
       .select('report_texts, date_key')
-      .gte('collected_at', thirtyDaysAgo.toISOString())
+      .gte('collected_at', fourteenDaysAgo.toISOString())
       .order('collected_at', { ascending: true })
-      .limit(50);
+      .limit(10);
 
     const allMsgs = [];
     const seenMsgKeys = new Set();
@@ -114,10 +114,10 @@ JSON으로만 응답하세요.`;
 ${JSON.stringify(stocks, null, 1)}
 
 ## 텔레그램 메시지 (${allMsgs.length}개)
-${allMsgs.slice(0, 40).join('\n---\n').slice(0, 25000)}
+${allMsgs.slice(-30).join('\n---\n').slice(0, 15000)}
 
 ## 기사 (${articles.length}개)
-${articles.join('\n---\n').slice(0, 12000)}
+${articles.join('\n---\n').slice(0, 8000)}
 
 ## 레포트 (${reports.length}개)
 ${reports.join('\n---\n').slice(0, 8000)}
