@@ -29,7 +29,7 @@ class ErrorBoundary extends Component {
             <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1A1D23", marginBottom: 8 }}>화면 렌더링 오류</h2>
             <p style={{ fontSize: 13, color: "#4E5461", lineHeight: 1.6, marginBottom: 16 }}>
-              자동입력 데이터 처리 중 오류가 발생했습니다.<br />
+              화면 데이터를 처리하는 중 오류가 발생했습니다.<br />
               데이터는 안전하게 저장되어 있습니다.
             </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 20 }}>
