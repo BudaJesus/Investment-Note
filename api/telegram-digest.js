@@ -6,80 +6,6 @@ const supabase = createClient(
 );
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-
-// ═══════════════════════════════════════════════════
-// Gemini Flash — PDF 원본 텍스트를 정리 (요약 아님!)
-// 중복/군더더기만 삭제, 핵심 데이터는 전부 유지
-// ═══════════════════════════════════════════════════
-async function organizeWithGemini(rawText, fileName) {
-  if (!GEMINI_KEY || rawText.length < 200) return rawText;
-
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: `아래는 증권사 리포트 "${fileName}"의 전체 텍스트입니다.
-
-## 작업: 정리 (요약 아님!)
-
-절대 규칙:
-1. 요약하지 마세요. 핵심 내용을 빠뜨리면 안 됩니다.
-2. 수치(가격, %, 금액, 날짜, 목표가, PER, 영업이익)는 하나도 빠뜨리지 말고 전부 포함하세요.
-3. 투자의견, 목표가, 애널리스트명, 증권사명은 반드시 포함하세요.
-4. 표/데이터가 있으면 구조를 유지하세요.
-5. 삭제해도 되는 것: 중복된 문장, 같은 말 반복, 법적 고지사항, 페이지 번호, 머리글/바닥글, 회사 주소/연락처, 준법감시 문구.
-6. 삭제하면 안 되는 것: 모든 수치, 모든 분석 내용, 모든 전망, 모든 데이터, 차트 설명.
-
-정리 형식:
-■ 레포트 기본정보
-증권사: / 애널리스트: / 발행일: / 투자의견: / 목표가:
-
-■ 핵심 논점
-(원본의 핵심 주장들을 빠짐없이, 수치 포함)
-
-■ 데이터/수치
-(원본에 있는 모든 수치, 표, 전망치를 구조화)
-
-■ 산업/시장 분석
-(원본의 산업/시장 관련 내용)
-
-■ 리스크
-(원본에 언급된 리스크 전부)
-
-■ 결론/전망
-(원본의 결론 부분)
-
-없는 섹션은 생략하세요. 섹션 내에서는 원본 표현을 최대한 살리세요.
-
-=== 레포트 원문 ===
-${rawText}` }] }],
-          generationConfig: { maxOutputTokens: 8000, temperature: 0.1 },
-        }),
-      }
-    );
-    if (!res.ok) return rawText.slice(0, 15000);
-    const data = await res.json();
-    const organized = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (organized && organized.length > 100) {
-      console.log(`Gemini organized: ${fileName} (${rawText.length} → ${organized.length} chars)`);
-      return organized;
-    }
-    return rawText.slice(0, 15000);
-  } catch (e) {
-    console.error('Gemini organize error:', e.message);
-    return rawText.slice(0, 15000); // fallback: 앞 15000자
-  }
-}
-
-// ═══════════════════════════════════════════════════
-// 텔레그램 정보 수집
-// 메시지/기사: AI 없음, 원본 그대로 저장
-// PDF 레포트: Gemini Flash(무료)로 정리 후 저장
-// ═══════════════════════════════════════════════════
 
 const DEFAULT_CHANNELS = [
   { handle: "ehdwl", name: "사제콩이_서상영", category: "시황" },
@@ -232,22 +158,22 @@ async function fetchReportTexts() {
                   pdfRawText = `[PDF 파싱 실패: ${parseErr.message}]`;
                 }
 
-                // Step 4: Gemini Flash로 정리 (무료, 요약 아님!)
-                // 중복/군더더기만 삭제, 수치/데이터/핵심내용 전부 유지
-                const organizedText = await organizeWithGemini(pdfRawText, fileName);
+                // 생성형 AI 없이 추출 원문을 그대로 보관합니다.
+                // Supabase 행 크기와 서버리스 응답 크기를 고려해 최대 15,000자로 제한합니다.
+                const storedText = pdfRawText.slice(0, 15000);
 
                 reports.push({
                   msgId: msg.message_id,
                   fileName,
                   channel: 'bot_private',
-                  text: `[PDF 레포트: ${fileName}]\n캡션: ${caption}\n\n${organizedText}`,
+                  text: `[PDF 레포트: ${fileName}]\n캡션: ${caption}\n\n${storedText}`,
                   extractedAt: new Date().toISOString(),
                   source: 'pdf',
                   rawLength: pdfRawText.length,
-                  organizedLength: organizedText.length,
+                  storedLength: storedText.length,
                 });
 
-                console.log(`PDF processed: ${fileName} (원본 ${pdfRawText.length}자 → 정리 ${organizedText.length}자)`);
+                console.log(`PDF processed: ${fileName} (원본 ${pdfRawText.length}자 → 저장 ${storedText.length}자)`);
               } catch (dlErr) {
                 console.error(`PDF download error [${fileName}]:`, dlErr.message);
               }
