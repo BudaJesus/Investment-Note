@@ -84,10 +84,18 @@ git push -u origin main
 ### 3-2. 환경 변수 설정
 `Environment Variables` 섹션에서:
 
-| Key | Value |
-|-----|-------|
-| `VITE_SUPABASE_URL` | `https://xxxx.supabase.co` (Step 1에서 복사) |
-| `VITE_SUPABASE_ANON_KEY` | `eyJhbGci...` (Step 1에서 복사) |
+| Key | Value | 용도 |
+|-----|-------|------|
+| `VITE_SUPABASE_URL` | `https://xxxx.supabase.co` | 로그인·사용자 데이터 저장 |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon public key | 브라우저용 공개 키 |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key | 서버 함수의 데이터 저장 전용 |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 텔레그램 수집 사용 시에만 |
+| `REPORT_CHANNEL_ID` | 리포트 채널 ID | 리포트 수집 사용 시에만 |
+| `ECOS_API_KEY` | 한국은행 ECOS API 키 | ECOS 지표 사용 시에만 |
+
+> `SUPABASE_SERVICE_KEY`와 `TELEGRAM_BOT_TOKEN`에는 `VITE_` 접두사를 붙이면 안 됩니다. `VITE_` 환경변수는 브라우저에 공개될 수 있습니다.
+>
+> 이 버전은 생성형 AI 기능을 제거했으므로 Claude, Gemini, OpenAI API 키가 필요하지 않습니다.
 
 ### 3-3. 배포
 1. `Deploy` 클릭
